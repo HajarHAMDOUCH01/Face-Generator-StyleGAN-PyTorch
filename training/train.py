@@ -7,13 +7,14 @@ from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import gc
 import os
+import numpy as np
 
 import sys 
-sys.path.append("/content/Convolutiional_VAE")
+sys.path.append("/content/VAE_StyleGanDecoder")
 
-from model.vae_model import ConvolutionnalVAE
-from data.dataset import FacesDataset
-from losses import vae_loss_with_perceptual, vae_loss_simple, perceptual_loss_vae, kl_divergence_loss, reconstruction_loss_mse, reconstruction_loss_mae, VGG19
+from model.vae_model import ConvolutionalVAE
+from data.caleba import FacesDataset
+from losses import vae_loss_with_perceptual, VGG19
 from training_config import training_config
 
 
@@ -30,20 +31,48 @@ def get_transforms():
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  
     ])
 
+
 def clear_memory():
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
     gc.collect()
 
-model = ConvolutionnalVAE(
+
+def check_for_anomalies(tensor, name="tensor"):
+    """Check for NaN or Inf values"""
+    if torch.isnan(tensor).any():
+        print(f"WARNING: NaN detected in {name}")
+        return True
+    if torch.isinf(tensor).any():
+        print(f"WARNING: Inf detected in {name}")
+        return True
+    return False
+
+
+model = ConvolutionalVAE(
     image_channels=3, 
     z_dim=training_config["z_dim"],  
     input_size=training_config["image_input_size"]
 ).to(device)
-optimizer = optim.Adam(model.parameters(), lr=training_config["lr"], betas=(0.0, 0.99), eps=1e-8)
+
+optimizer = optim.Adam(
+    model.parameters(), 
+    lr=training_config["lr"], 
+    betas=(training_config["adam_beta1"], training_config["adam_beta2"]), 
+    eps=training_config["adam_eps"]
+)
+
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, 
+    mode='min', 
+    factor=0.5, 
+    patience=10, 
+    verbose=True
+)
 
 model.train()
+
 
 def load_model_from_checkpoint(checkpoint_path, model, optimizer):
     print(f"Loading checkpoint from: {checkpoint_path}")
@@ -65,6 +94,7 @@ def load_model_from_checkpoint(checkpoint_path, model, optimizer):
 
     return model, optimizer, start_epoch, beta
 
+
 def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -82,6 +112,8 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
     beta_start = training_config["beta_start"]
     beta_end = training_config["beta_end"]
     beta_warmup_epochs = training_config["beta_warmup_epochs"]
+    free_bits = training_config.get("free_bits", 0.5)
+    grad_clip = training_config.get("grad_clip", 0.5)
     
     start_epoch = 0
     epoch_losses = []
@@ -99,12 +131,12 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
         beta = beta_start
 
     transform = get_transforms()
-    faces_dataset = FacesDataset(root=dataset_path, transform=transform)
+    faces_dataset = FacesDataset(root=dataset_path, transform=transform, limit=10000)
     dataloader = DataLoader(
         faces_dataset, 
         batch_size=batch_size, 
         shuffle=True,
-        num_workers=2,  
+        num_workers=training_config["num_workers"],
         pin_memory=True,
         drop_last=True,
         persistent_workers=True if training_config["num_workers"] > 0 else False
@@ -115,15 +147,20 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
     print(f"- Batch size: {batch_size}")
     print(f"- Learning rate: {lr}")
     print(f"- Beta schedule: {beta_start} → {beta_end} over {beta_warmup_epochs} epochs")
+    print(f"- Free bits: {free_bits}")
+    print(f"- Gradient clip: {grad_clip}")
     print(f"- Image range: [-1, 1] (StyleGAN format)")
     print(f"- Total epochs: {num_epochs}\n")
 
     for epoch in range(start_epoch, num_epochs):
         model.train()
         total_loss = 0
-        total_bce = 0
+        total_recon = 0
         total_kld = 0
-        num_batchs = 0
+        num_batches = 0
+        
+        mu_stats = []
+        logvar_stats = []
 
         if epoch < beta_warmup_epochs:
             beta = beta_start + (beta_end - beta_start) * (epoch / beta_warmup_epochs)
@@ -136,9 +173,17 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
             real_images = real_images.to(device, non_blocking=True)
             batch_size_actual = real_images.size(0)
             
-            optimizer.zero_grad(set_to_nona=True)
-            recon_imgs, mu, logvar = model(real_images)   
-
+            optimizer.zero_grad()
+            
+            recon_imgs, mu, logvar = model(real_images)
+            
+            if check_for_anomalies(mu, "mu") or check_for_anomalies(logvar, "logvar"):
+                print(f"Anomaly detected at epoch {epoch+1}, batch {batch_idx}")
+                continue
+            
+            mu_stats.append(mu.detach().mean().item())
+            logvar_stats.append(logvar.detach().mean().item())
+            
             use_perceptual = (epoch >= training_config["perceptual_start_epoch"])
 
             loss, kld_loss, recon_loss = vae_loss_with_perceptual(
@@ -150,11 +195,18 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
                 beta=beta,
                 mse_weight=training_config["mse_weight"],
                 percep_weight=training_config["percep_weight"],
-                use_percep=use_perceptual
+                use_percep=use_perceptual,
+                free_bits=free_bits
             )
+            
+            if check_for_anomalies(loss, "loss"):
+                print(f"Loss anomaly at epoch {epoch+1}, batch {batch_idx}")
+                continue
 
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+            
             optimizer.step()
             
             total_loss += loss.detach().item()
@@ -166,7 +218,9 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
                 "Loss": f"{loss.item():.4f}",
                 "Recon": f"{recon_loss.item():.4f}", 
                 "KLD": f"{kld_loss.item():.4f}",
-                "Beta": f"{beta:.3f}"
+                "Beta": f"{beta:.4f}",
+                "μ": f"{mu.mean().item():.3f}",
+                "σ²": f"{logvar.exp().mean().item():.3f}"
             })
 
             del recon_imgs, mu, logvar, loss, recon_loss, kld_loss
@@ -177,6 +231,8 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
         avg_loss = total_loss / num_batches
         avg_recon = total_recon / num_batches
         avg_kld = total_kld / num_batches
+        avg_mu = np.mean(mu_stats)
+        avg_logvar = np.mean(logvar_stats)
         
         epoch_losses.append(avg_loss)
         epoch_recon_losses.append(avg_recon)
@@ -187,7 +243,11 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
         print(f"  Avg Loss: {avg_loss:.4f}")
         print(f"  Recon Loss: {avg_recon:.4f}")
         print(f"  KLD Loss: {avg_kld:.4f}")
-        print(f"  Beta: {beta:.3f}")
+        print(f"  Beta: {beta:.4f}")
+        print(f"  Avg μ: {avg_mu:.4f}")
+        print(f"  Avg log(σ²): {avg_logvar:.4f}")
+        
+        scheduler.step(avg_loss)
 
         clear_memory()
 
@@ -225,6 +285,7 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
 
     return model, epoch_losses
 
+
 def generate_samples(model, device, epoch, save_dir, num_samples=16):
     """Generate samples from random latent codes"""
     model.eval()
@@ -247,6 +308,7 @@ def generate_samples(model, device, epoch, save_dir, num_samples=16):
         plt.close()
     
     model.train()
+
 
 def plot_training_curves(epoch_losses, epoch_recon_losses, epoch_kld_losses, epoch_betas):
     """Plot training metrics"""
