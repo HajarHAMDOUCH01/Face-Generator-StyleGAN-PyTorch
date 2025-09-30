@@ -250,7 +250,7 @@ class ConvolutionalVAE(nn.Module):
         nn.init.xavier_normal_(self.fc_mu.weight, gain=0.5)
         nn.init.zeros_(self.fc_mu.bias)
         nn.init.xavier_normal_(self.fc_logvar.weight, gain=0.5)
-        nn.init.constant_(self.fc_logvar.bias, -5.0)
+        nn.init.constant_(self.fc_logvar.bias, 0.0)
         
         self.decoder = StyleGANDecoder(z_dim=z_dim, w_dim=z_dim, max_size=input_size)
     
@@ -275,8 +275,8 @@ class ConvolutionalVAE(nn.Module):
         mu = self.fc_mu(h)
         logvar = self.fc_logvar(h)
         
-        mu = torch.clamp(mu, -10, 10)
-        logvar = torch.clamp(logvar, -20, 20)
+        mu = torch.clamp(mu, -5, 5)  
+        logvar = torch.clamp(logvar, -10, 2)  
         
         z = self.reparameterize(mu, logvar)
         return z, mu, logvar
