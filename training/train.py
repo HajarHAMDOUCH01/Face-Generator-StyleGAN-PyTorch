@@ -11,9 +11,9 @@ import gc
 from pathlib import Path
 
 import sys 
-sys.path.append("")
+sys.path.append("/content/STYLE_GAN_in_pytorch")
 
-from model import StyleGAN, Discriminator
+from model.style_gan import StyleGAN, Discriminator
 from training_config import training_config
 
 
