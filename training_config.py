@@ -12,8 +12,8 @@ training_config = {
 
 
     # TO DO : These learning rates need schedulers !
-    "g_lr": 0.0005,  # Generator learning rate 
-    "d_lr": 0.0005,  # Discriminator learning rate
+    "g_lr": 0.001,  # Generator learning rate 
+    "d_lr": 0.001,  # Discriminator learning rate
     "adam_beta1": 0.0,
     "adam_beta2": 0.99,
     "adam_eps": 1e-8,
