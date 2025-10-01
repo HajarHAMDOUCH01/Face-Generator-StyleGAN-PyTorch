@@ -1,6 +1,6 @@
-torch 
+torch
 torchvision
-tqdm 
-Pillow
-numpy
+tqdm
+pillow
 matplotlib
+numpy
