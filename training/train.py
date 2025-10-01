@@ -112,11 +112,11 @@ def generate_samples(generator, device, epoch, save_dir, num_samples=16):
 
 def load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, checkpoint_path=None):
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    generator = generator.load_state_dict(checkpoint["generator_state_dict"])
-    discriminator = discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
-    g_optimizer = g_optimizer.load_state_dict(checkpoint["g_optimizer_state_dict"])
-    d_optimizer = d_optimizer.load_state_dict(checkpoint["d_optimizer_state_dict"])
-    start_epoch = start_epoch.load_state_dict(checkpoint["epoch"])
+    generator.load_state_dict(checkpoint["generator_state_dict"])
+    discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
+    g_optimizer.load_state_dict(checkpoint["g_optimizer_state_dict"])
+    d_optimizer.load_state_dict(checkpoint["d_optimizer_state_dict"])
+    start_epoch = checkpoint["epoch"]
 
     return generator,  discriminator, g_optimizer, d_optimizer, start_epoch
 
@@ -300,10 +300,10 @@ def train_stylegan(config, checkpoint_path=None):
                 'discriminator_state_dict': discriminator.state_dict(),
                 'g_optimizer_state_dict': g_optimizer.state_dict(),
                 'd_optimizer_state_dict': d_optimizer.state_dict(),
-                'g_losses': g_losses,
-                'd_losses': d_losses,
+                # 'g_losses': g_losses,
+                # 'd_losses': d_losses,
                 # 'r1_penalties': r1_penalties,
-                # 'config': config
+                # 'config': config  
             }
             checkpoint_path = os.path.join(save_dir, f'stylegan_checkpoint_epoch_{epoch+1}.pth')
             torch.save(checkpoint, checkpoint_path)
