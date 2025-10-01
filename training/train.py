@@ -111,7 +111,7 @@ def generate_samples(generator, device, epoch, save_dir, num_samples=16):
 
 
 def load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, checkpoint_path=None):
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     generator.load_state_dict(checkpoint["generator_state_dict"])
     discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
     g_optimizer.load_state_dict(checkpoint["g_optimizer_state_dict"])
@@ -231,13 +231,13 @@ def train_stylegan(config, checkpoint_path=None):
             # Discriminator loss
             d_loss = discriminator_loss(real_scores, fake_scores)
             
-            if batch_idx % 16 == 0:
-                r1_penalty = compute_gradient_penalty(discriminator, real_images, fake_images)
-                d_loss_total = d_loss + config["r1_gamma"] * r1_penalty * 0.5
-                epoch_r1 += r1_penalty.item()
-            else:
-                d_loss_total = d_loss
-                r1_penalty = torch.tensor(0.0)
+            # if batch_idx % 16 == 0:
+            r1_penalty = compute_gradient_penalty(discriminator, real_images, fake_images)
+            d_loss_total = d_loss + config["r1_gamma"] * r1_penalty * 0.5
+            epoch_r1 += r1_penalty.item()
+            # else:
+            #     d_loss_total = d_loss
+            #     r1_penalty = torch.tensor(0.0)
             
             d_loss_total.backward()
             
