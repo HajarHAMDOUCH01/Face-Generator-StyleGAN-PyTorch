@@ -232,7 +232,6 @@ class StyleGAN(nn.Module):
             num_layers = self.synthesis.num_layers
             crossover = torch.randint(1, num_layers, (1,)).item()
             
-            # Create mixed w
             w = torch.stack([w1] * num_layers, dim=1)
             w[:, crossover:] = w2.unsqueeze(1)
         else:
@@ -248,7 +247,7 @@ class StyleGAN(nn.Module):
         with torch.no_grad():
             w = self.mapping(z)
             if truncation_psi < 1.0:
-                # Truncate towards mean w
+                # Truncates towards mean w
                 w_mean = self.mapping(torch.randn(1000, self.z_dim, device=z.device)).mean(0)
                 w = w_mean + truncation_psi * (w - w_mean)
             return self.synthesis(w)
