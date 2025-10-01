@@ -9,9 +9,11 @@ training_config = {
     "batch_size": 16,
     "num_epochs": 300,
     "num_workers": 2,
-    
-    "g_lr": 0.002,  # Generator learning rate
-    "d_lr": 0.002,  # Discriminator learning rate
+
+
+    # TO DO : These learning rates need schedulers !
+    "g_lr": 0.0005,  # Generator learning rate 
+    "d_lr": 0.0005,  # Discriminator learning rate
     "adam_beta1": 0.0,
     "adam_beta2": 0.99,
     "adam_eps": 1e-8,

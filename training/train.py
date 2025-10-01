@@ -110,7 +110,17 @@ def generate_samples(generator, device, epoch, save_dir, num_samples=16):
     generator.train()
 
 
-def train_stylegan(config):
+def load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, checkpoint_path=None):
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    generator = generator.load_state_dict(checkpoint["generator_state_dict"])
+    discriminator = discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
+    g_optimizer = g_optimizer.load_state_dict(checkpoint["g_optimizer_state_dict"])
+    d_optimizer = d_optimizer.load_state_dict(checkpoint["d_optimizer_state_dict"])
+    start_epoch = start_epoch.load_state_dict(checkpoint["epoch"])
+
+    return generator,  discriminator, g_optimizer, d_optimizer, start_epoch
+
+def train_stylegan(config, checkpoint_path=None):
     
     img_size = config["image_size"]
     z_dim = config["z_dim"]
@@ -177,12 +187,19 @@ def train_stylegan(config):
     print(f"- R1 gamma: {config['r1_gamma']}")
     print(f"- Dataset size: {len(dataset)}")
     print(f"- Total epochs: {num_epochs}\n")
-    
+
+    start_epoch = 0
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        generator, discriminator, g_optimizer, d_optimizer, start_epoch = load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, checkpoint_path)
+        print(f"resuming from {checkpoint_path} at epoch {start_epoch}")
+    else:
+        print(f"starting training from epoch 0")
+
     g_losses = []
     d_losses = []
     r1_penalties = []
     
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         generator.train()
         discriminator.train()
         
