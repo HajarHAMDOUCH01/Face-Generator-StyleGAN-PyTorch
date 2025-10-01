@@ -79,7 +79,6 @@ def generator_loss(fake_scores):
 
 
 def clear_memory():
-    """Clear GPU memory"""
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
@@ -97,11 +96,9 @@ def generate_samples(generator, device, epoch, save_dir, num_samples=16):
         samples = (samples + 1) / 2
         samples = torch.clamp(samples, 0, 1)
         
-        # Create grid
         import torchvision.utils as vutils
         grid = vutils.make_grid(samples, nrow=4, padding=2, normalize=False)
         
-        # Save
         plt.figure(figsize=(10, 10))
         plt.imshow(grid.permute(1, 2, 0).cpu())
         plt.axis('off')
@@ -115,7 +112,6 @@ def generate_samples(generator, device, epoch, save_dir, num_samples=16):
 
 def train_stylegan(config):
     
-    # Setup
     img_size = config["image_size"]
     z_dim = config["z_dim"]
     w_dim = config["w_dim"]
@@ -124,7 +120,6 @@ def train_stylegan(config):
     save_dir = config["save_dir"]
     os.makedirs(save_dir, exist_ok=True)
     
-    # Models
     generator = StyleGAN(
         z_dim=z_dim,
         w_dim=w_dim,
@@ -158,7 +153,7 @@ def train_stylegan(config):
     dataset = CelebADataset(
         root=config["dataset_path"],
         transform=transform,
-        limit=None  
+        limit=None  # the images in this repo is of a 5000 subset 
     )
     
     dataloader = DataLoader(
@@ -253,23 +248,20 @@ def train_stylegan(config):
             
             g_optimizer.step()
             
-            # Track losses
             epoch_g_loss += g_loss.item()
             epoch_d_loss += d_loss.item()
             num_batches += 1
             
-            # Update progress bar
             loop.set_postfix({
                 "G_loss": f"{g_loss.item():.4f}",
                 "D_loss": f"{d_loss.item():.4f}",
                 "R1": f"{r1_penalty.item():.4f}" if r1_penalty.item() > 0 else "0.0000",
             })
             
-            # Periodic memory cleanup
+            # Periodic memory cleanup as optimization
             if batch_idx % 100 == 0:
                 clear_memory()
         
-        # Epoch statistics
         avg_g_loss = epoch_g_loss / num_batches
         avg_d_loss = epoch_d_loss / num_batches
         avg_r1 = epoch_r1 / max(1, num_batches // 16)

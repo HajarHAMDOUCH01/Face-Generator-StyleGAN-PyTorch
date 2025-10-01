@@ -117,7 +117,6 @@ class SynthesisNetwork(nn.Module):
         self.w_dim = w_dim
         self.img_size = img_size
         
-        # Learned constant input (paper section 2.1, config D)
         self.const = nn.Parameter(torch.randn(1, 512, 4, 4))
         
         # Calculate number of layers needed
@@ -131,7 +130,7 @@ class SynthesisNetwork(nn.Module):
         # Progressive blocks
         self.blocks = nn.ModuleList()
         in_ch = 512
-        for i in range(3, self.log_size + 1):  # From 8x8 to target resolution
+        for i in range(3, self.log_size + 1):  
             out_ch = min(512, 512 // (2 ** max(0, i - 4)))  # Reduce channels at higher resolutions
             # Each resolution has 2 convolutions
             self.blocks.append(StyleBlock(in_ch, out_ch, w_dim, upsample=True))
@@ -144,7 +143,6 @@ class SynthesisNetwork(nn.Module):
     def forward(self, w):
         batch_size = w.shape[0]
         
-        # Broadcast w to all layers if needed
         if w.dim() == 2:
             w = w.unsqueeze(1).repeat(1, self.num_layers, 1)
         
