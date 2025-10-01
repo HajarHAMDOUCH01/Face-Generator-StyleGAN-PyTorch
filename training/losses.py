@@ -7,10 +7,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def kl_divergence_loss(mu, logvar):
     """
-    KL Divergence: KLD = -0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    Standard KL Divergence: KLD = -0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     """
-    kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return kld / mu.size(0)  # Average over batch
+    kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
+    return kld.mean()  
+
+
+def kl_divergence_loss_with_free_bits(mu, logvar, free_bits=0.5):
+    kld_per_dim = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
+    
+    kld_per_dim = torch.clamp(kld_per_dim, min=free_bits)
+    
+    kld = torch.sum(kld_per_dim, dim=1).mean()
+    
+    return kld
 
 
 def reconstruction_loss_mse(recon_x, x):
@@ -49,7 +59,7 @@ class VGG19(nn.Module):
 
         self.vgg_model_weights = VGG19_Weights
         
-        # VGG expects [0, 1] range, normalizeation inside forward()
+        # VGG expects [0, 1] range, normalization inside forward()
         self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
         self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
         
@@ -67,12 +77,9 @@ class VGG19(nn.Module):
             param.requires_grad = False
     
     def normalize_image(self, x):
-        """
-        Convert from [-1, 1] (StyleGAN output) to VGG input format
-        """
         # [-1, 1] -> [0, 1]
         x = (x + 1) / 2
-        # Normalize with ImageNet stats
+        # Normalization with ImageNet stats
         x = (x - self.mean) / self.std
         return x
             
@@ -83,7 +90,6 @@ class VGG19(nn.Module):
         Returns:
             List of feature maps at different layers
         """
-        # Normalize for VGG
         x = self.normalize_image(x)
         
         h1 = self.slice1(x)
@@ -95,36 +101,18 @@ class VGG19(nn.Module):
 
 
 def perceptual_loss_vae(vgg19_model, recon_x, x):
-    """
-    Perceptual loss using VGG19 features
-    Compares feature representations at multiple layers
-    
-    Args:
-        vgg19_model: VGG19 feature extractor
-        recon_x: reconstructed image in [-1, 1] range
-        x: original image in [-1, 1] range
-    """
-    # Layer weights (emphasize mid-to-high level features)
-    layer_weights = [0.03125, 0.0625, 0.125, 0.25]  # 1/32, 1/16, 1/8, 1/4
+    layer_weights = [0.0625, 0.125, 0.25, 0.5]
     
     total_loss = 0.0
     
-    # Extract features
     with torch.no_grad():
         x_features = vgg19_model(x)
     
     recon_features = vgg19_model(recon_x)
     
-    # Compute weighted feature loss
     for i, (x_feat, recon_feat) in enumerate(zip(x_features, recon_features)):
-        # Normalize by feature map size for consistent scaling
-        _, c, h, w = x_feat.shape
-        normalization = c * h * w
+        layer_loss = F.mse_loss(recon_feat, x_feat, reduction='mean')
         
-        # Compute MSE loss for this layer
-        layer_loss = F.mse_loss(recon_feat, x_feat, reduction='sum') / normalization
-        
-        # Apply layer weight
         weighted_loss = layer_weights[i] * layer_loss
         total_loss += weighted_loss
     
@@ -132,13 +120,8 @@ def perceptual_loss_vae(vgg19_model, recon_x, x):
 
 
 def vae_loss_with_perceptual(vgg19_model, recon_x, x, mu, logvar, beta=1.0, 
-                             mse_weight=1.0, percep_weight=0.1, use_percep=True):
-    """
-    Complete VAE loss with optional perceptual loss
-    
-    Total Loss = MSE_Loss + α * Perceptual_Loss + β * KL_Divergence
-    """
-    # Reconstruction loss (MSE in pixel space)
+                             mse_weight=1.0, percep_weight=0.1, use_percep=True,
+                             free_bits=None):
     mse_loss = mse_weight * reconstruction_loss_mse(recon_x, x)
     
     if use_percep:
@@ -147,18 +130,24 @@ def vae_loss_with_perceptual(vgg19_model, recon_x, x, mu, logvar, beta=1.0,
     else:
         recon_loss = mse_loss
     
-    # KL divergence loss
-    kld_loss = kl_divergence_loss(mu, logvar)
+    if free_bits is not None and free_bits > 0:
+        kld_loss = kl_divergence_loss_with_free_bits(mu, logvar, free_bits=free_bits)
+    else:
+        kld_loss = kl_divergence_loss(mu, logvar)
     
-    # Total loss
     total_loss = recon_loss + beta * kld_loss
     
     return total_loss, beta * kld_loss, recon_loss
 
 
-def vae_loss_simple(recon_x, x, mu, logvar, beta=1.0):
+def vae_loss_simple(recon_x, x, mu, logvar, beta=1.0, free_bits=None):
     recon_loss = reconstruction_loss_mse(recon_x, x)
-    kld_loss = kl_divergence_loss(mu, logvar)
+    
+    if free_bits is not None and free_bits > 0:
+        kld_loss = kl_divergence_loss_with_free_bits(mu, logvar, free_bits=free_bits)
+    else:
+        kld_loss = kl_divergence_loss(mu, logvar)
+    
     total_loss = recon_loss + beta * kld_loss
     
     return total_loss, beta * kld_loss, recon_loss

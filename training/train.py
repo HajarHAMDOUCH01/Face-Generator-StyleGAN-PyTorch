@@ -53,7 +53,8 @@ def check_for_anomalies(tensor, name="tensor"):
 model = ConvolutionalVAE(
     image_channels=3, 
     z_dim=training_config["z_dim"],  
-    input_size=training_config["image_input_size"]
+    input_size=training_config["image_input_size"],
+    use_style_mixing=True
 ).to(device)
 
 optimizer = optim.Adam(
@@ -68,7 +69,6 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(
     mode='min', 
     factor=0.5, 
     patience=10, 
-    verbose=True
 )
 
 model.train()

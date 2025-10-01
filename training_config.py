@@ -8,11 +8,11 @@ training_config = {
     "num_workers": 2,  
 
     "beta_start": 0.0,  
-    "beta_end": 0.01,  
-    "beta_warmup_epochs": 150,  
+    "beta_end": 0.05,  
+    "beta_warmup_epochs": 100,  
     
     "mse_weight": 1.0, 
-    "percep_weight": 0.02, 
+    "percep_weight": 0.01, 
     "perceptual_start_epoch": 20,  
     
     "adam_beta1": 0.0,
@@ -24,6 +24,6 @@ training_config = {
     
     "save_every": 10,  
     "sample_every": 5,  
-    "free_bits" : 0.5,
+    "free_bits" : 0.2,
     "grad_clip" : 0.5,
 }
