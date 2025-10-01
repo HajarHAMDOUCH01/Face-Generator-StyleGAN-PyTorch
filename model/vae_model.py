@@ -12,7 +12,6 @@ def pixel_norm(z, epsilon=1e-8):
 
 
 class ResidualBlock(nn.Module):
-    """Residual block for encoder - adds capacity without depth explosion"""
     def __init__(self, channels):
         super().__init__()
         self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
@@ -31,10 +30,6 @@ class ResidualBlock(nn.Module):
 
 
 class StrongerEncoder(nn.Module):
-    """
-    Much deeper encoder with residual connections
-    Goes from 3 channels → 512 channels with 5 downsampling stages
-    """
     def __init__(self, z_dim=512):
         super().__init__()
         
@@ -108,7 +103,7 @@ class StrongerEncoder(nn.Module):
                 nn.init.zeros_(m.bias)
     
     def forward(self, x):
-        x = self.initial(x)   # 128×128×64
+        x = self.initial(x)    # 128×128×64
         x = self.down1(x)      # 64×64×128
         x = self.down2(x)      # 32×32×256
         x = self.down3(x)      # 16×16×512
