@@ -126,9 +126,9 @@ w[k:end] = w2  # Fine styles (color, texture)
 
 ## Mathematical Formulation
 
-### VAE Loss
+### VAE Loss (MSE + VGG19 features distance -from > 20 epoches- + KLD -beta annealing- ) with weights as hyperparameters
 ```
-L = L_recon + β * KL(q(z|x) || p(z))
+L = MSE_loss_weight * L_recon + perceptual_loss_weight * percep_distance + β * KL(q(z|x) || p(z)) 
 
 L_recon = ||x - x̂||²  (reconstruction loss)
 KL = -0.5 * Σ(1 + log σ² - μ² - σ²)  (KL divergence)
