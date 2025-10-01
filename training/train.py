@@ -1,171 +1,200 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+from PIL import Image
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
-import gc
 import os
-import numpy as np
+import gc
+from pathlib import Path
 
 import sys 
-sys.path.append("/content/VAE_StyleGanDecoder")
+sys.path.append("")
 
-from model.vae_model import ConvolutionalVAE
-from data.caleba import FacesDataset
-from losses import vae_loss_with_perceptual, VGG19
+from model import StyleGAN, Discriminator
 from training_config import training_config
 
 
-checkpoint_path = None
-dataset_path = training_config["dataset_path"]
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"using device : {device}")
+print(f"Using device: {device}")
 
 
-def get_transforms():
+class CelebADataset(Dataset):
+    """CelebA dataset loader"""
+    def __init__(self, root, transform=None, limit=None):
+        self.root = Path(root)
+        self.transform = transform
+        self.image_files = sorted(list(self.root.glob("*.jpg")))[:limit]
+    
+    def __len__(self):
+        return len(self.image_files)
+    
+    def __getitem__(self, idx):
+        img_path = self.image_files[idx]
+        image = Image.open(img_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+        return image
+
+
+def get_transforms(img_size):
+    """Data preprocessing pipeline"""
     return transforms.Compose([
-        transforms.Resize((training_config["image_input_size"], training_config["image_input_size"])),
+        transforms.Resize((img_size, img_size)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # [-1, 1]
     ])
 
 
+def compute_gradient_penalty(discriminator, real_images, fake_images):
+    """R1 regularization (paper section C, equation from Mescheder et al.)"""
+    real_images.requires_grad_(True)
+    real_scores = discriminator(real_images)
+    
+    gradients = torch.autograd.grad(
+        outputs=real_scores.sum(),
+        inputs=real_images,
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+    
+    # R1 penalty: ||∇D(x)||²
+    r1_penalty = gradients.pow(2).sum(dim=[1, 2, 3]).mean()
+    return r1_penalty
+
+
+def discriminator_loss(real_scores, fake_scores):
+    # For real images: maximize log(D(x))
+    real_loss = F.softplus(-real_scores).mean()
+    # For fake images: maximize log(1 - D(G(z)))
+    fake_loss = F.softplus(fake_scores).mean()
+    return real_loss + fake_loss
+
+
+def generator_loss(fake_scores):
+    # Maximize log(D(G(z)))
+    return F.softplus(-fake_scores).mean()
+
+
 def clear_memory():
+    """Clear GPU memory"""
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
     gc.collect()
 
 
-def check_for_anomalies(tensor, name="tensor"):
-    """Check for NaN or Inf values"""
-    if torch.isnan(tensor).any():
-        print(f"WARNING: NaN detected in {name}")
-        return True
-    if torch.isinf(tensor).any():
-        print(f"WARNING: Inf detected in {name}")
-        return True
-    return False
-
-
-model = ConvolutionalVAE(
-    image_channels=3, 
-    z_dim=training_config["z_dim"],  
-    input_size=training_config["image_input_size"],
-    use_style_mixing=True
-).to(device)
-
-optimizer = optim.Adam(
-    model.parameters(), 
-    lr=training_config["lr"], 
-    betas=(training_config["adam_beta1"], training_config["adam_beta2"]), 
-    eps=training_config["adam_eps"]
-)
-
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, 
-    mode='min', 
-    factor=0.5, 
-    patience=10, 
-)
-
-model.train()
-
-
-def load_model_from_checkpoint(checkpoint_path, model, optimizer):
-    print(f"Loading checkpoint from: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-
-    start_epoch = checkpoint['epoch'] + 1
-
-    if 'beta' in checkpoint:
-        beta = checkpoint['beta']
-    else:
-        beta = training_config["beta_start"]
+def generate_samples(generator, device, epoch, save_dir, num_samples=16):
+    """Generate and save sample images"""
+    generator.eval()
+    with torch.no_grad():
+        z = torch.randn(num_samples, generator.z_dim, device=device)
+        samples = generator.generate(z, truncation_psi=0.7)
+        
+        # Denormalize from [-1, 1] to [0, 1]
+        samples = (samples + 1) / 2
+        samples = torch.clamp(samples, 0, 1)
+        
+        # Create grid
+        import torchvision.utils as vutils
+        grid = vutils.make_grid(samples, nrow=4, padding=2, normalize=False)
+        
+        # Save
+        plt.figure(figsize=(10, 10))
+        plt.imshow(grid.permute(1, 2, 0).cpu())
+        plt.axis('off')
+        plt.title(f'Generated Samples - Epoch {epoch}')
+        save_path = os.path.join(save_dir, f'samples_epoch_{epoch}.png')
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
     
-    print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
-    print(f"Will resume training from epoch {start_epoch}")
-    print(f"Current beta: {beta}")
-
-    return model, optimizer, start_epoch, beta
+    generator.train()
 
 
-def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    vgg19_model = VGG19()
-    vgg19_model.to(device)
-    vgg19_model.eval()
-
-    clear_memory()
+def train_stylegan(config):
     
-    z_dim = training_config["z_dim"]
-    batch_size = training_config["batch_size"]
-    lr = training_config["lr"]
-    num_epochs = training_config["num_epochs"]
-    beta_start = training_config["beta_start"]
-    beta_end = training_config["beta_end"]
-    beta_warmup_epochs = training_config["beta_warmup_epochs"]
-    free_bits = training_config.get("free_bits", 0.5)
-    grad_clip = training_config.get("grad_clip", 0.5)
+    # Setup
+    img_size = config["image_size"]
+    z_dim = config["z_dim"]
+    w_dim = config["w_dim"]
+    batch_size = config["batch_size"]
+    num_epochs = config["num_epochs"]
+    save_dir = config["save_dir"]
+    os.makedirs(save_dir, exist_ok=True)
     
-    start_epoch = 0
-    epoch_losses = []
-    epoch_recon_losses = []
-    epoch_kld_losses = []
-    epoch_betas = []
-
-    if checkpoint_path and os.path.exists(checkpoint_path):
-        model, optimizer, start_epoch, beta = load_model_from_checkpoint(checkpoint_path, model, optimizer)
-        print(f"Resuming training from epoch {start_epoch}")
-    else:
-        if checkpoint_path:
-            print(f"Checkpoint file {checkpoint_path} not found. Starting fresh training.")
-        print("Starting training from scratch")
-        beta = beta_start
-
-    transform = get_transforms()
-    faces_dataset = FacesDataset(root=dataset_path, transform=transform, limit=10000)
+    # Models
+    generator = StyleGAN(
+        z_dim=z_dim,
+        w_dim=w_dim,
+        img_size=img_size,
+        img_channels=3,
+        mapping_layers=config["mapping_layers"],
+        style_mixing_prob=config["style_mixing_prob"]
+    ).to(device)
+    
+    discriminator = Discriminator(
+        img_size=img_size,
+        img_channels=3
+    ).to(device)
+    
+    g_optimizer = optim.Adam(
+        generator.parameters(),
+        lr=config["g_lr"],
+        betas=(config["adam_beta1"], config["adam_beta2"]),
+        eps=config["adam_eps"]
+    )
+    
+    d_optimizer = optim.Adam(
+        discriminator.parameters(),
+        lr=config["d_lr"],
+        betas=(config["adam_beta1"], config["adam_beta2"]),
+        eps=config["adam_eps"]
+    )
+    
+    # Dataset
+    transform = get_transforms(img_size)
+    dataset = CelebADataset(
+        root=config["dataset_path"],
+        transform=transform,
+        limit=None  
+    )
+    
     dataloader = DataLoader(
-        faces_dataset, 
-        batch_size=batch_size, 
+        dataset,
+        batch_size=batch_size,
         shuffle=True,
-        num_workers=training_config["num_workers"],
+        num_workers=config["num_workers"],
         pin_memory=True,
         drop_last=True,
-        persistent_workers=True if training_config["num_workers"] > 0 else False
+        persistent_workers=True if config["num_workers"] > 0 else False
     )
-
+    
     print(f"\nTraining Configuration:")
+    print(f"- Image size: {img_size}x{img_size}")
     print(f"- Z dimension: {z_dim}")
+    print(f"- W dimension: {w_dim}")
     print(f"- Batch size: {batch_size}")
-    print(f"- Learning rate: {lr}")
-    print(f"- Beta schedule: {beta_start} → {beta_end} over {beta_warmup_epochs} epochs")
-    print(f"- Free bits: {free_bits}")
-    print(f"- Gradient clip: {grad_clip}")
-    print(f"- Image range: [-1, 1] (StyleGAN format)")
+    print(f"- Generator LR: {config['g_lr']}")
+    print(f"- Discriminator LR: {config['d_lr']}")
+    print(f"- Style mixing prob: {config['style_mixing_prob']}")
+    print(f"- R1 gamma: {config['r1_gamma']}")
+    print(f"- Dataset size: {len(dataset)}")
     print(f"- Total epochs: {num_epochs}\n")
-
-    for epoch in range(start_epoch, num_epochs):
-        model.train()
-        total_loss = 0
-        total_recon = 0
-        total_kld = 0
-        num_batches = 0
+    
+    g_losses = []
+    d_losses = []
+    r1_penalties = []
+    
+    for epoch in range(num_epochs):
+        generator.train()
+        discriminator.train()
         
-        mu_stats = []
-        logvar_stats = []
-
-        if epoch < beta_warmup_epochs:
-            beta = beta_start + (beta_end - beta_start) * (epoch / beta_warmup_epochs)
-        else:
-            beta = beta_end
+        epoch_g_loss = 0
+        epoch_d_loss = 0
+        epoch_r1 = 0
+        num_batches = 0
         
         loop = tqdm(dataloader, leave=True, desc=f"Epoch {epoch+1}/{num_epochs}")
         
@@ -173,184 +202,159 @@ def train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path=None):
             real_images = real_images.to(device, non_blocking=True)
             batch_size_actual = real_images.size(0)
             
-            optimizer.zero_grad()
+            # ==================== Train Discriminator ====================
+            d_optimizer.zero_grad()
             
-            recon_imgs, mu, logvar = model(real_images)
+            # Generate fake images
+            z1 = torch.randn(batch_size_actual, z_dim, device=device)
+            z2 = torch.randn(batch_size_actual, z_dim, device=device)
             
-            if check_for_anomalies(mu, "mu") or check_for_anomalies(logvar, "logvar"):
-                print(f"Anomaly detected at epoch {epoch+1}, batch {batch_idx}")
-                continue
+            with torch.no_grad():
+                fake_images = generator(z1, z2)
             
-            mu_stats.append(mu.detach().mean().item())
-            logvar_stats.append(logvar.detach().mean().item())
+            # Discriminator scores
+            real_scores = discriminator(real_images)
+            fake_scores = discriminator(fake_images.detach())
             
-            use_perceptual = (epoch >= training_config["perceptual_start_epoch"])
-
-            loss, kld_loss, recon_loss = vae_loss_with_perceptual(
-                vgg19_model=vgg19_model,
-                recon_x=recon_imgs,
-                x=real_images,
-                mu=mu,
-                logvar=logvar,
-                beta=beta,
-                mse_weight=training_config["mse_weight"],
-                percep_weight=training_config["percep_weight"],
-                use_percep=use_perceptual,
-                free_bits=free_bits
-            )
+            # Discriminator loss
+            d_loss = discriminator_loss(real_scores, fake_scores)
             
-            if check_for_anomalies(loss, "loss"):
-                print(f"Loss anomaly at epoch {epoch+1}, batch {batch_idx}")
-                continue
-
-            loss.backward()
+            if batch_idx % 16 == 0:
+                r1_penalty = compute_gradient_penalty(discriminator, real_images, fake_images)
+                d_loss_total = d_loss + config["r1_gamma"] * r1_penalty * 0.5
+                epoch_r1 += r1_penalty.item()
+            else:
+                d_loss_total = d_loss
+                r1_penalty = torch.tensor(0.0)
             
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+            d_loss_total.backward()
             
-            optimizer.step()
+            if config["grad_clip"]:
+                torch.nn.utils.clip_grad_norm_(discriminator.parameters(), config["grad_clip"])
             
-            total_loss += loss.detach().item()
-            total_recon += recon_loss.detach().item()
-            total_kld += kld_loss.detach().item()
+            d_optimizer.step()
+            
+            # ==================== Train Generator ====================
+            g_optimizer.zero_grad()
+            
+            # Generate new fake images
+            z1 = torch.randn(batch_size_actual, z_dim, device=device)
+            z2 = torch.randn(batch_size_actual, z_dim, device=device)
+            fake_images = generator(z1, z2)
+            
+            # Generator loss
+            fake_scores = discriminator(fake_images)
+            g_loss = generator_loss(fake_scores)
+            
+            g_loss.backward()
+            
+            if config["grad_clip"]:
+                torch.nn.utils.clip_grad_norm_(generator.parameters(), config["grad_clip"])
+            
+            g_optimizer.step()
+            
+            # Track losses
+            epoch_g_loss += g_loss.item()
+            epoch_d_loss += d_loss.item()
             num_batches += 1
             
+            # Update progress bar
             loop.set_postfix({
-                "Loss": f"{loss.item():.4f}",
-                "Recon": f"{recon_loss.item():.4f}", 
-                "KLD": f"{kld_loss.item():.4f}",
-                "Beta": f"{beta:.4f}",
-                "μ": f"{mu.mean().item():.3f}",
-                "σ²": f"{logvar.exp().mean().item():.3f}"
+                "G_loss": f"{g_loss.item():.4f}",
+                "D_loss": f"{d_loss.item():.4f}",
+                "R1": f"{r1_penalty.item():.4f}" if r1_penalty.item() > 0 else "0.0000",
             })
-
-            del recon_imgs, mu, logvar, loss, recon_loss, kld_loss
-
+            
+            # Periodic memory cleanup
             if batch_idx % 100 == 0:
                 clear_memory()
         
-        avg_loss = total_loss / num_batches
-        avg_recon = total_recon / num_batches
-        avg_kld = total_kld / num_batches
-        avg_mu = np.mean(mu_stats)
-        avg_logvar = np.mean(logvar_stats)
+        # Epoch statistics
+        avg_g_loss = epoch_g_loss / num_batches
+        avg_d_loss = epoch_d_loss / num_batches
+        avg_r1 = epoch_r1 / max(1, num_batches // 16)
         
-        epoch_losses.append(avg_loss)
-        epoch_recon_losses.append(avg_recon)
-        epoch_kld_losses.append(avg_kld)
-        epoch_betas.append(beta)
-
+        g_losses.append(avg_g_loss)
+        d_losses.append(avg_d_loss)
+        r1_penalties.append(avg_r1)
+        
         print(f"\nEpoch {epoch+1} Complete:")
-        print(f"  Avg Loss: {avg_loss:.4f}")
-        print(f"  Recon Loss: {avg_recon:.4f}")
-        print(f"  KLD Loss: {avg_kld:.4f}")
-        print(f"  Beta: {beta:.4f}")
-        print(f"  Avg μ: {avg_mu:.4f}")
-        print(f"  Avg log(σ²): {avg_logvar:.4f}")
+        print(f"  Generator Loss: {avg_g_loss:.4f}")
+        print(f"  Discriminator Loss: {avg_d_loss:.4f}")
+        print(f"  R1 Penalty: {avg_r1:.4f}")
         
-        scheduler.step(avg_loss)
-
-        clear_memory()
-
-        if (epoch + 1) % training_config["save_every"] == 0:
+        # Save checkpoint
+        if (epoch + 1) % config["save_every"] == 0:
             checkpoint = {
                 'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'beta': beta,
-                'losses': {
-                    'total': epoch_losses,
-                    'recon': epoch_recon_losses,
-                    'kld': epoch_kld_losses,
-                    'betas': epoch_betas
-                }
+                'generator_state_dict': generator.state_dict(),
+                'discriminator_state_dict': discriminator.state_dict(),
+                'g_optimizer_state_dict': g_optimizer.state_dict(),
+                'd_optimizer_state_dict': d_optimizer.state_dict(),
+                'g_losses': g_losses,
+                'd_losses': d_losses,
+                'r1_penalties': r1_penalties,
+                'config': config
             }
-            checkpoint_file = f'{training_config["save_dir"]}/stylegan_vae_checkpoint_epoch_{epoch+1}.pth'
-            torch.save(checkpoint, checkpoint_file)
-            print(f"Checkpoint saved: {checkpoint_file}")
-            
-            model_file = f'{training_config["save_dir"]}/stylegan_vae_model_epoch_{epoch+1}.pth'
-            torch.save(model.state_dict(), model_file)
+            checkpoint_path = os.path.join(save_dir, f'stylegan_checkpoint_epoch_{epoch+1}.pth')
+            torch.save(checkpoint, checkpoint_path)
+            print(f"Checkpoint saved: {checkpoint_path}")
         
-        if (epoch + 1) % training_config["sample_every"] == 0:
-            generate_samples(model, device, epoch + 1, training_config["save_dir"])
+        # Generate samples
+        if (epoch + 1) % config["sample_every"] == 0:
+            generate_samples(generator, device, epoch + 1, save_dir)
+        
+        clear_memory()
     
-    clear_memory()
-        
+    # Save final model
     print("\nTraining complete! Saving final model...")
-    final_model_path = f'{training_config["save_dir"]}/stylegan_vae_final_model.pth'
-    torch.save(model.state_dict(), final_model_path)
-    print(f"Final model saved: {final_model_path}")
-
-    plot_training_curves(epoch_losses, epoch_recon_losses, epoch_kld_losses, epoch_betas)
-
-    return model, epoch_losses
-
-
-def generate_samples(model, device, epoch, save_dir, num_samples=16):
-    """Generate samples from random latent codes"""
-    model.eval()
-    with torch.no_grad():
-        z = torch.randn(num_samples, model.z_dim).to(device)
-        
-        samples = model.decode(z)
-        
-        samples = (samples + 1) / 2
-        samples = torch.clamp(samples, 0, 1)
-        
-        import torchvision.utils as vutils
-        grid = vutils.make_grid(samples, nrow=4, padding=2, normalize=False)
-        
-        plt.figure(figsize=(10, 10))
-        plt.imshow(grid.permute(1, 2, 0).cpu())
-        plt.axis('off')
-        plt.title(f'Generated Samples - Epoch {epoch}')
-        plt.savefig(f'{save_dir}/samples_epoch_{epoch}.png', dpi=150, bbox_inches='tight')
-        plt.close()
+    final_path = os.path.join(save_dir, 'stylegan_final.pth')
+    torch.save({
+        'generator': generator.state_dict(),
+        'discriminator': discriminator.state_dict(),
+        'config': config
+    }, final_path)
+    print(f"Final model saved: {final_path}")
     
-    model.train()
+    # Plot training curves
+    plot_training_curves(g_losses, d_losses, r1_penalties, save_dir)
+    
+    return generator, discriminator, g_losses, d_losses
 
 
-def plot_training_curves(epoch_losses, epoch_recon_losses, epoch_kld_losses, epoch_betas):
-    """Plot training metrics"""
-    plt.figure(figsize=(20, 5))
+def plot_training_curves(g_losses, d_losses, r1_penalties, save_dir):
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     
-    plt.subplot(1, 4, 1)
-    plt.plot(epoch_losses, label='Total Loss', linewidth=2)
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Total Training Loss')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    axes[0].plot(g_losses, label='Generator Loss')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Loss')
+    axes[0].set_title('Generator Loss')
+    axes[0].legend()
+    axes[0].grid(True)
     
-    plt.subplot(1, 4, 2)
-    plt.plot(epoch_recon_losses, label='Reconstruction Loss', color='red', linewidth=2)
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Reconstruction Loss')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    axes[1].plot(d_losses, label='Discriminator Loss', color='orange')
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Loss')
+    axes[1].set_title('Discriminator Loss')
+    axes[1].legend()
+    axes[1].grid(True)
     
-    plt.subplot(1, 4, 3)
-    plt.plot(epoch_kld_losses, label='KLD Loss', color='green', linewidth=2)
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('KL Divergence Loss')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    plt.subplot(1, 4, 4)
-    plt.plot(epoch_betas, label='Beta Schedule', color='purple', linewidth=2)
-    plt.xlabel('Epoch')
-    plt.ylabel('Beta')
-    plt.title('Beta Annealing Schedule')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    axes[2].plot(r1_penalties, label='R1 Penalty', color='green')
+    axes[2].set_xlabel('Epoch')
+    axes[2].set_ylabel('Penalty')
+    axes[2].set_title('R1 Regularization')
+    axes[2].legend()
+    axes[2].grid(True)
     
     plt.tight_layout()
-    plt.savefig(f'{training_config["save_dir"]}/training_curves.png', dpi=150, bbox_inches='tight')
-    plt.show()
+    save_path = os.path.join(save_dir, 'training_curves.png')
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
+    print(f"Training curves saved: {save_path}")
 
 
 if __name__ == "__main__":
-    model, losses = train_stylegan_vae(model, optimizer, dataset_path, checkpoint_path)
+    import torch.nn.functional as F 
+    
+    generator, discriminator, g_losses, d_losses = train_stylegan(training_config)
+    print("\n✓ Training completed successfully!")

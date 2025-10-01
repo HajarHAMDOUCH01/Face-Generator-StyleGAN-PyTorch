@@ -5,24 +5,6 @@ import torch.nn.functional as F
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def kl_divergence_loss(mu, logvar):
-    """
-    Standard KL Divergence: KLD = -0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    """
-    kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
-    return kld.mean()  
-
-
-def kl_divergence_loss_with_free_bits(mu, logvar, free_bits=0.5):
-    kld_per_dim = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
-    
-    kld_per_dim = torch.clamp(kld_per_dim, min=free_bits)
-    
-    kld = torch.sum(kld_per_dim, dim=1).mean()
-    
-    return kld
-
-
 def reconstruction_loss_mse(recon_x, x):
     return F.mse_loss(recon_x, x, reduction='mean')
 
@@ -110,37 +92,3 @@ def perceptual_loss_vae(vgg19_model, recon_x, x):
         total_loss += weighted_loss
     
     return total_loss
-
-
-def vae_loss_with_perceptual(vgg19_model, recon_x, x, mu, logvar, beta=1.0, 
-                             mse_weight=1.0, percep_weight=0.1, use_percep=True,
-                             free_bits=None):
-    mse_loss = mse_weight * reconstruction_loss_mse(recon_x, x)
-    
-    if use_percep:
-        percep_loss = percep_weight * perceptual_loss_vae(vgg19_model, recon_x, x)
-        recon_loss = mse_loss + percep_loss
-    else:
-        recon_loss = mse_loss
-    
-    if free_bits is not None and free_bits > 0:
-        kld_loss = kl_divergence_loss_with_free_bits(mu, logvar, free_bits=free_bits)
-    else:
-        kld_loss = kl_divergence_loss(mu, logvar)
-    
-    total_loss = recon_loss + beta * kld_loss
-    
-    return total_loss, beta * kld_loss, recon_loss
-
-
-def vae_loss_simple(recon_x, x, mu, logvar, beta=1.0, free_bits=None):
-    recon_loss = reconstruction_loss_mse(recon_x, x)
-    
-    if free_bits is not None and free_bits > 0:
-        kld_loss = kl_divergence_loss_with_free_bits(mu, logvar, free_bits=free_bits)
-    else:
-        kld_loss = kl_divergence_loss(mu, logvar)
-    
-    total_loss = recon_loss + beta * kld_loss
-    
-    return total_loss, beta * kld_loss, recon_loss
