@@ -24,17 +24,10 @@ def kl_divergence_loss_with_free_bits(mu, logvar, free_bits=0.5):
 
 
 def reconstruction_loss_mse(recon_x, x):
-    """
-    MSE reconstruction loss (better for [-1, 1] range images)
-    StyleGAN outputs are in [-1, 1] range, so MSE is more appropriate than BCE
-    """
     return F.mse_loss(recon_x, x, reduction='mean')
 
 
 def reconstruction_loss_mae(recon_x, x):
-    """
-    MAE (L1) reconstruction loss - often more robust than MSE
-    """
     return F.l1_loss(recon_x, x, reduction='mean')
 
 
@@ -59,7 +52,7 @@ class VGG19(nn.Module):
 
         self.vgg_model_weights = VGG19_Weights
         
-        # VGG expects [0, 1] range, normalization inside forward()
+        # VGG expects [0, 1] range and normalization is inside forward()
         self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
         self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
         
