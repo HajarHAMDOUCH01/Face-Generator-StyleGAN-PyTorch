@@ -5,14 +5,6 @@ import torch.nn.functional as F
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def reconstruction_loss_mse(recon_x, x):
-    return F.mse_loss(recon_x, x, reduction='mean')
-
-
-def reconstruction_loss_mae(recon_x, x):
-    return F.l1_loss(recon_x, x, reduction='mean')
-
-
 VGG19_LAYERS = (
     'conv1_1', 'relu1_1', 'conv1_2', 'relu1_2', 'pool1',
     'conv2_1', 'relu2_1', 'conv2_2', 'relu2_2', 'pool2',
@@ -73,22 +65,3 @@ class VGG19(nn.Module):
         h4 = self.slice4(h3)
 
         return [h1, h2, h3, h4]
-
-
-def perceptual_loss_vae(vgg19_model, recon_x, x):
-    layer_weights = [0.0625, 0.125, 0.25, 0.5]
-    
-    total_loss = 0.0
-    
-    with torch.no_grad():
-        x_features = vgg19_model(x)
-    
-    recon_features = vgg19_model(recon_x)
-    
-    for i, (x_feat, recon_feat) in enumerate(zip(x_features, recon_features)):
-        layer_loss = F.mse_loss(recon_feat, x_feat, reduction='mean')
-        
-        weighted_loss = layer_weights[i] * layer_loss
-        total_loss += weighted_loss
-    
-    return total_loss
