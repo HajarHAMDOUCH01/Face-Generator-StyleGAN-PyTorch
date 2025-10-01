@@ -116,7 +116,7 @@ def load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, che
     discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
     g_optimizer.load_state_dict(checkpoint["g_optimizer_state_dict"])
     d_optimizer.load_state_dict(checkpoint["d_optimizer_state_dict"])
-    start_epoch = checkpoint["epoch"]
+    start_epoch = checkpoint["epoch"] + 1
 
     return generator,  discriminator, g_optimizer, d_optimizer, start_epoch
 
@@ -163,7 +163,7 @@ def train_stylegan(config, checkpoint_path=None):
     dataset = CelebADataset(
         root=config["dataset_path"],
         transform=transform,
-        limit=10000  # the images in this repo is of a 5000 subset 
+        limit=10000  # the images in this repo is of a 10000 subset 
     )
     
     dataloader = DataLoader(
@@ -199,7 +199,7 @@ def train_stylegan(config, checkpoint_path=None):
     d_losses = []
     r1_penalties = []
     
-    for epoch in range(start_epoch + 1, num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         generator.train()
         discriminator.train()
         
