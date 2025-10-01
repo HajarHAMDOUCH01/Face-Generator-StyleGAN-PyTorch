@@ -163,7 +163,7 @@ def train_stylegan(config, checkpoint_path=None):
     dataset = CelebADataset(
         root=config["dataset_path"],
         transform=transform,
-        limit=None  # the images in this repo is of a 5000 subset 
+        limit=10000  # the images in this repo is of a 5000 subset 
     )
     
     dataloader = DataLoader(
