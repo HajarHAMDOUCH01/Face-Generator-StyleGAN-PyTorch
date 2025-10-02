@@ -2,7 +2,7 @@
 ### Data : Caleba Dataset (with 10k subset) 
 
 ### in epoch 5 / 300 
-![image alt]([https://github.com/HajarHAMDOUCH01/STYLE_GAN_in_pytorch/blob/ea86a6d78d18f47978d7e3138166e6218fe1f499/evaluation/generation_evalution/samples_epoch_25.png](https://github.com/HajarHAMDOUCH01/STYLE_GAN_in_pytorch/blob/e1df90ccac8ca0880fc46a5f9e96082efae4c21b/samples_epoch_5%20(1).png))
+![image alt](https://github.com/HajarHAMDOUCH01/STYLE_GAN_in_pytorch/blob/e1df90ccac8ca0880fc46a5f9e96082efae4c21b/samples_epoch_5%20(1).png)
 
 To decrease training time and prove model functionning , I :
 - Image size : 128*128
