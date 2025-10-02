@@ -7,7 +7,7 @@
 To decrease training time and prove model functionning , I :
 - Image size : 128*128
 - Subset of 10k images from CalebA dataset
-- Because the subset was smaller , 8 layers of fully connected layers of mapping net will make the model memorize a more linear space W of the data too well. so I changed mapping net depth from 8 (as the paper) to 4 because i saw mode collapse in epoch 40 / 300.
+- Because the subset was smaller , 8 layers of fully connected layers of mapping net will make the model memorize a space W of the data too well , like using too much effort while 10k is not worth that much effort. so I changed mapping net depth from 8 (as the paper) to 4 because i saw mode collapse in epoch 40 / 300.
 
 ### Inference :
 - Run testing/test.py , it geneartes a new face using scripted model using Torchscript.
