@@ -303,7 +303,7 @@ def train_stylegan(config, checkpoint_path=None):
                 'g_losses': g_losses,
                 'd_losses': d_losses,
                 'r1_penalties': r1_penalties,
-                # 'config': config  
+                'config': config  
             }
             checkpoint_path = os.path.join(save_dir, f'stylegan_checkpoint_epoch_{epoch+1}.pth')
             torch.save(checkpoint, checkpoint_path)

@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from torch import Tensor
+from typing import Optional
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -51,7 +53,7 @@ class MappingNetwork(nn.Module):
         self.mapping = nn.Sequential(*layers)
         self.pixel_norm = PixelNorm()
     
-    def forward(self, z):
+    def forward(self, z: Tensor) -> Tensor:
         z = self.pixel_norm(z)
         w = self.mapping(z)
         return w
@@ -79,7 +81,7 @@ class NoiseInjection(nn.Module):
         super().__init__()
         self.weight = nn.Parameter(torch.zeros(1, channels, 1, 1))
     
-    def forward(self, x, noise=None):
+    def forward(self, x: Tensor, noise: Optional[Tensor] = None) -> Tensor:
         if noise is None:
             batch, _, height, width = x.shape
             noise = torch.randn(batch, 1, height, width, device=x.device)
@@ -94,13 +96,16 @@ class StyleBlock(nn.Module):
         
         if upsample:
             self.upsample_layer = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+
+        else:
+            self.upsample_layer = nn.Identity()
         
         self.conv = EqualizedConv2d(in_channels, out_channels, kernel_size=3, padding=1, gain=2)
-        self.noise = NoiseInjection(out_channels)
+        self.noise = NoiseInjection(out_channels) 
         self.adain = AdaIN(out_channels, w_dim)
         self.activation = nn.LeakyReLU(0.2)
     
-    def forward(self, x, w, noise=None):
+    def forward(self, x, w, noise: Optional[Tensor] = None):
         if self.upsample:
             x = self.upsample_layer(x)
         x = self.conv(x)
@@ -120,7 +125,7 @@ class SynthesisNetwork(nn.Module):
         self.const = nn.Parameter(torch.randn(1, 512, 4, 4))
         
         # Calculate number of layers needed
-        self.log_size = int(np.log2(img_size))
+        self.log_size = int(np.log2(self.img_size))
         self.num_layers = (self.log_size - 1) * 2  # 2 layers per resolution
         
         # Initial 4x4 block (no upsampling)
@@ -202,7 +207,7 @@ class Discriminator(nn.Module):
         self.final_linear = EqualizedLinear(512 * 4 * 4, 1, gain=1)
         self.activation = nn.LeakyReLU(0.2)
     
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         x = self.convs(x)
         x = self.final_conv(x)
         x = self.activation(x)
@@ -222,7 +227,7 @@ class StyleGAN(nn.Module):
         self.mapping = MappingNetwork(z_dim, w_dim, mapping_layers)
         self.synthesis = SynthesisNetwork(w_dim, img_size, img_channels)
     
-    def forward(self, z1, z2=None, return_w=False):
+    def forward(self, z1: Tensor, z2: Optional[Tensor] = None, return_w: bool = False) -> tuple[Tensor, Optional[Tensor]]:
         w1 = self.mapping(z1)
         
         if self.training and z2 is not None and torch.rand(1).item() < self.style_mixing_prob:
@@ -241,9 +246,9 @@ class StyleGAN(nn.Module):
         
         if return_w:
             return rgb, w
-        return rgb
+        return rgb, None
     
-    def generate(self, z, truncation_psi=1.0):
+    def generate(self, z: Tensor, truncation_psi: float = 1.0) -> Tensor:
         with torch.no_grad():
             w = self.mapping(z)
             if truncation_psi < 1.0:
