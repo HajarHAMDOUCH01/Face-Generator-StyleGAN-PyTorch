@@ -3,7 +3,7 @@ training_config = {
     "image_size": 128,  # Target resolution
     "z_dim": 512,  # Latent dimension
     "w_dim": 512,  # Intermediate latent dimension
-    "mapping_layers": 8,  # Depth of mapping network (paper uses 8)
+    "mapping_layers": 6,  # Depth of mapping network (paper uses 8)
     
     # Training
     "batch_size": 16,
@@ -12,14 +12,14 @@ training_config = {
 
 
     # TO DO : These learning rates need schedulers !
-    "g_lr": 0.001,  # Generator learning rate 
-    "d_lr": 0.001,  # Discriminator learning rate
+    "g_lr": 0.0006,  # Generator learning rate 
+    "d_lr": 0.0006,  # Discriminator learning rate
     "adam_beta1": 0.0,
     "adam_beta2": 0.99,
     "adam_eps": 1e-8,
     
     # Regularization
-    "r1_gamma": 10.0,  # R1 regularization weight (paper uses 10)
+    "r1_gamma": 5.0,  # R1 regularization weight (paper uses 10)
     "mixing_prob": 0.9,  # Style mixing probability (paper uses 90%)
     "style_mixing_prob": 0.9,  
     
