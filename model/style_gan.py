@@ -16,7 +16,6 @@ class PixelNorm(nn.Module):
     def forward(self, x):
         return x * torch.rsqrt(torch.mean(x**2, dim=1, keepdim=True) + self.epsilon)
 
-
 class EqualizedLinear(nn.Module):
     def __init__(self, in_features, out_features, bias=True, gain=2):
         super().__init__()
@@ -248,6 +247,7 @@ class StyleGAN(nn.Module):
             return rgb, w
         return rgb, None
     
+    @torch.no_grad()
     def generate(self, z: Tensor, truncation_psi: float = 1.0) -> Tensor:
         with torch.no_grad():
             w = self.mapping(z)
