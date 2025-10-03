@@ -6,14 +6,14 @@ training_config = {
     "mapping_layers": 4,  # Depth of mapping network (paper uses 8)
     
     # Training
-    "batch_size": 32,
+    "batch_size": 40,
     "num_epochs": 300,
     "num_workers": 2,
 
 
     # TO DO : These learning rates need schedulers !
     "g_lr": 0.0006,  # Generator learning rate 
-    "d_lr": 0.0004,  # Discriminator learning rate
+    "d_lr": 0.0006,  # Discriminator learning rate
     "adam_beta1": 0.0,
     "adam_beta2": 0.999,
     "adam_eps": 1e-8,
