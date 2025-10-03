@@ -232,7 +232,7 @@ def train_stylegan(config, checkpoint_path=None):
             z1 = torch.randn(batch_size_actual, z_dim, device=device)
             z2 = torch.randn(batch_size_actual, z_dim, device=device)
             
-            with torch.no_grad():
+            with torch.autocast(device_type="cuda", dtype=torch.float16):
                 fake_images, _ = generator(z1, z2)
             
             # Discriminator scores
@@ -260,11 +260,13 @@ def train_stylegan(config, checkpoint_path=None):
             # Generate new fake images
             z1 = torch.randn(batch_size_actual, z_dim, device=device)
             z2 = torch.randn(batch_size_actual, z_dim, device=device)
-            fake_images, _ = generator(z1, z2)
             
-            # Generator loss
-            fake_scores = discriminator(fake_images)
-            g_loss = generator_loss(fake_scores)
+            with torch.autocast(device_type="cuda", dtype=torch.float16):
+                fake_images, _ = generator(z1, z2)
+                
+                # Generator loss
+                fake_scores = discriminator(fake_images)
+                g_loss = generator_loss(fake_scores)
             
             scaler.scale(g_loss).backward()
             
