@@ -210,7 +210,7 @@ class Discriminator(nn.Module):
         x = self.convs(x)
         x = self.final_conv(x)
         x = self.activation(x)
-        x = x.view(x.size(0), -1)
+        x = x.reshape(x.size(0), -1)
         x = self.final_linear(x)
         return x
 

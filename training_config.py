@@ -3,24 +3,24 @@ training_config = {
     "image_size": 128,  # Target resolution
     "z_dim": 512,  # Latent dimension
     "w_dim": 512,  # Intermediate latent dimension
-    "mapping_layers": 6,  # Depth of mapping network (paper uses 8)
+    "mapping_layers": 4,  # Depth of mapping network (paper uses 8)
     
     # Training
-    "batch_size": 16,
+    "batch_size": 32,
     "num_epochs": 300,
     "num_workers": 2,
 
 
     # TO DO : These learning rates need schedulers !
     "g_lr": 0.0006,  # Generator learning rate 
-    "d_lr": 0.0006,  # Discriminator learning rate
+    "d_lr": 0.0004,  # Discriminator learning rate
     "adam_beta1": 0.0,
-    "adam_beta2": 0.99,
+    "adam_beta2": 0.999,
     "adam_eps": 1e-8,
     
     # Regularization
     "r1_gamma": 5.0,  # R1 regularization weight (paper uses 10)
-    "mixing_prob": 0.9,  # Style mixing probability (paper uses 90%)
+    "mixing_prob": 0.8,  # Style mixing probability (paper uses 90%)
     "style_mixing_prob": 0.9,  
     
     # Loss
@@ -34,7 +34,7 @@ training_config = {
     "dataset_path": "/kaggle/input/celeba-dataset/img_align_celeba/img_align_celeba",
     "save_dir": "/content/drive/MyDrive/stylegan_checkpoints",
     
-    "save_every": 10,
+    "save_every": 5,
     "sample_every": 5,
     "log_every": 50,  
     
