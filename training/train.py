@@ -12,7 +12,7 @@ from pathlib import Path
 from torch.amp import GradScaler, autocast
 
 import sys 
-sys.path.append("/content/STYLE_GAN_in_pytorch")
+sys.path.append("/content/Face-Generator-StyleGAN-PyTorch")
 
 from model.style_gan import StyleGAN, Discriminator
 from training_config import training_config
@@ -143,14 +143,12 @@ def train_stylegan(config, checkpoint_path=None):
         style_mixing_prob=config["style_mixing_prob"]
     ).to(device)
     generator = generator.to(memory_format=torch.channels_last)
-    generator.synthesis = torch.compile(generator.synthesis)
 
     discriminator = Discriminator(
         img_size=img_size,
         img_channels=3
     ).to(device)
     discriminator = discriminator.to(memory_format=torch.channels_last)
-    discriminator = torch.compile(discriminator)
     
     g_optimizer = optim.Adam(
         generator.parameters(),
@@ -202,6 +200,11 @@ def train_stylegan(config, checkpoint_path=None):
         print(f"resuming from {checkpoint_path} at epoch {start_epoch}")
     else:
         print(f"starting training from epoch 0")
+    
+    generator.synthesis = torch.compile(generator.synthesis)
+    discriminator = torch.compile(discriminator)
+
+
 
     g_losses = []
     d_losses = []
