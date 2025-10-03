@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import os
 import gc
 from pathlib import Path
+from torch.amp import GradScaler, autocast
 
 import sys 
 sys.path.append("/content/STYLE_GAN_in_pytorch")
@@ -16,6 +17,9 @@ sys.path.append("/content/STYLE_GAN_in_pytorch")
 from model.style_gan import StyleGAN, Discriminator
 from training_config import training_config
 
+
+torch.backends.cudnn.benchmark = True
+scaler = GradScaler("cuda")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
@@ -138,11 +142,15 @@ def train_stylegan(config, checkpoint_path=None):
         mapping_layers=config["mapping_layers"],
         style_mixing_prob=config["style_mixing_prob"]
     ).to(device)
-    
+    generator = generator.to(memory_format=torch.channels_last)
+    generator.synthesis = torch.compile(generator.synthesis)
+
     discriminator = Discriminator(
         img_size=img_size,
         img_channels=3
     ).to(device)
+    discriminator = discriminator.to(memory_format=torch.channels_last)
+    discriminator = torch.compile(discriminator)
     
     g_optimizer = optim.Adam(
         generator.parameters(),
@@ -222,7 +230,7 @@ def train_stylegan(config, checkpoint_path=None):
             z2 = torch.randn(batch_size_actual, z_dim, device=device)
             
             with torch.no_grad():
-                fake_images = generator(z1, z2)
+                fake_images, _ = generator(z1, z2)
             
             # Discriminator scores
             real_scores = discriminator(real_images)
@@ -231,39 +239,37 @@ def train_stylegan(config, checkpoint_path=None):
             # Discriminator loss
             d_loss = discriminator_loss(real_scores, fake_scores)
             
-            # if batch_idx % 16 == 0:
             r1_penalty = compute_gradient_penalty(discriminator, real_images, fake_images)
             d_loss_total = d_loss + config["r1_gamma"] * r1_penalty * 0.5
             epoch_r1 += r1_penalty.item()
-            # else:
-            #     d_loss_total = d_loss
-            #     r1_penalty = torch.tensor(0.0)
             
-            d_loss_total.backward()
+            scaler.scale(d_loss_total).backward()
             
             if config["grad_clip"]:
                 torch.nn.utils.clip_grad_norm_(discriminator.parameters(), config["grad_clip"])
             
-            d_optimizer.step()
-            
+            scaler.step(d_optimizer)
+            scaler.update()
+
             # ==================== Train Generator ====================
             g_optimizer.zero_grad()
             
             # Generate new fake images
             z1 = torch.randn(batch_size_actual, z_dim, device=device)
             z2 = torch.randn(batch_size_actual, z_dim, device=device)
-            fake_images = generator(z1, z2)
+            fake_images, _ = generator(z1, z2)
             
             # Generator loss
             fake_scores = discriminator(fake_images)
             g_loss = generator_loss(fake_scores)
             
-            g_loss.backward()
+            scaler.scale(g_loss).backward()
             
             if config["grad_clip"]:
                 torch.nn.utils.clip_grad_norm_(generator.parameters(), config["grad_clip"])
             
-            g_optimizer.step()
+            scaler.step(g_optimizer)
+            scaler.update()
             
             epoch_g_loss += g_loss.item()
             epoch_d_loss += d_loss.item()
