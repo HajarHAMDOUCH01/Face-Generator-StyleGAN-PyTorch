@@ -1,8 +1,12 @@
 ### This Repository is Style GAN in PyTorch , From this paper : [A Style-Based Generator Architecture for Generative Adversarial Networks](https://arxiv.org/abs/1812.04948) 
 ### Data : Caleba Dataset (with 10k subset) 
 
-### in epoch 5 / 300 
-![image alt](https://github.com/HajarHAMDOUCH01/STYLE_GAN_in_pytorch/blob/e1df90ccac8ca0880fc46a5f9e96082efae4c21b/samples_epoch_5%20(1).png)
+### in epoch 10 / 300 
+![image alt](https://github.com/HajarHAMDOUCH01/Face-Generator-StyleGAN-PyTorch/blob/b68a476369d4d2e698b880b498a803eb3028515d/samples_epoch_10%20(1).png)
+
+### in epoch 15 / 300 
+![image alt](https://github.com/HajarHAMDOUCH01/Face-Generator-StyleGAN-PyTorch/blob/b68a476369d4d2e698b880b498a803eb3028515d/samples_epoch_15%20(3).png)
+
 
 To decrease training time and prove model functionning , I :
 - Image size : 128*128
