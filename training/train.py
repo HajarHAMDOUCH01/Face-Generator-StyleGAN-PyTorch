@@ -232,7 +232,7 @@ def train_stylegan(config, checkpoint_path=None):
             z1 = torch.randn(batch_size_actual, z_dim, device=device)
             z2 = torch.randn(batch_size_actual, z_dim, device=device)
             
-            with torch.autocast(device_type="cuda", dtype=torch.float16):
+            with torch.no_grad():
                 fake_images, _ = generator(z1, z2)
             
             # Discriminator scores
@@ -261,12 +261,11 @@ def train_stylegan(config, checkpoint_path=None):
             z1 = torch.randn(batch_size_actual, z_dim, device=device)
             z2 = torch.randn(batch_size_actual, z_dim, device=device)
             
-            with torch.autocast(device_type="cuda", dtype=torch.float16):
-                fake_images, _ = generator(z1, z2)
-                
-                # Generator loss
-                fake_scores = discriminator(fake_images)
-                g_loss = generator_loss(fake_scores)
+            fake_images, _ = generator(z1, z2)
+            
+            # Generator loss
+            fake_scores = discriminator(fake_images)
+            g_loss = generator_loss(fake_scores)
             
             scaler.scale(g_loss).backward()
             
@@ -376,5 +375,5 @@ def plot_training_curves(g_losses, d_losses, r1_penalties, save_dir):
 if __name__ == "__main__":
     import torch.nn.functional as F 
     
-    generator, discriminator, g_losses, d_losses = train_stylegan(training_config)
+    generator, discriminator, g_losses, d_losses = train_stylegan(training_config, checkpoint_path="/content/drive/MyDrive/stylegan_checkpoint_epoch_15.pth")
     print("\n✓ Training completed successfully!")
