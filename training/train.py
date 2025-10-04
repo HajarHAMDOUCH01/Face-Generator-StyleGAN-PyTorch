@@ -116,13 +116,45 @@ def generate_samples(generator, device, epoch, save_dir, num_samples=16):
 
 def load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, checkpoint_path=None):
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    generator.load_state_dict(checkpoint["generator_state_dict"])
-    discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
+    
+    def strip_prefix(state_dict, prefix="_orig_mod."):
+        """Remove torch.compile() wrapper prefix from state dict keys"""
+        return {
+            k.replace(prefix, ""): v 
+            for k, v in state_dict.items()
+        }
+    
+    gen_state = checkpoint["generator_state_dict"]
+    if any(k.startswith("synthesis._orig_mod") for k in gen_state.keys()):
+        # Checkpoint has _orig_mod prefix in synthesis module
+        gen_state_fixed = {}
+        for k, v in gen_state.items():
+            if k.startswith("synthesis._orig_mod."):
+                # Remove _orig_mod from synthesis keys
+                new_key = k.replace("synthesis._orig_mod.", "synthesis.")
+                gen_state_fixed[new_key] = v
+            else:
+                gen_state_fixed[k] = v
+        gen_state = gen_state_fixed
+    
+    generator.load_state_dict(gen_state)
+    
+    # Load discriminator state dict with prefix handling  
+    disc_state = checkpoint["discriminator_state_dict"]
+    if any("_orig_mod" in k for k in disc_state.keys()):
+        disc_state = strip_prefix(disc_state)
+    
+    discriminator.load_state_dict(disc_state)
+    
+    # Optimizers should load fine
     g_optimizer.load_state_dict(checkpoint["g_optimizer_state_dict"])
     d_optimizer.load_state_dict(checkpoint["d_optimizer_state_dict"])
+    
     start_epoch = checkpoint["epoch"] + 1
-
-    return generator,  discriminator, g_optimizer, d_optimizer, start_epoch
+    
+    print(f"Successfully loaded checkpoint from epoch {checkpoint['epoch']}")
+    
+    return generator, discriminator, g_optimizer, d_optimizer, start_epoch
 
 def train_stylegan(config, checkpoint_path=None):
     
@@ -239,14 +271,26 @@ def train_stylegan(config, checkpoint_path=None):
             real_scores = discriminator(real_images)
             fake_scores = discriminator(fake_images.detach())
             
-            # Discriminator loss
+            # Discriminator loss (base adversarial loss)
             d_loss = discriminator_loss(real_scores, fake_scores)
             
-            r1_penalty = compute_gradient_penalty(discriminator, real_images, fake_images)
-            d_loss_total = d_loss + config["r1_gamma"] * r1_penalty * 0.5
-            epoch_r1 += r1_penalty.item()
+            # ✅ LAZY R1: Only apply every r1_interval batches
+            r1_interval = config.get("r1_interval", 16)  # Default to 16 if not set
+            
+            if batch_idx % r1_interval == 0:
+                # Apply R1 regularization
+                r1_penalty = compute_gradient_penalty(discriminator, real_images, fake_images)
+                # Scale by interval to compensate for less frequent application
+                d_loss_total = d_loss + config["r1_gamma"] * r1_penalty * r1_interval
+                epoch_r1 += r1_penalty.item()
+            else:
+                # No R1 penalty this step
+                d_loss_total = d_loss
+                epoch_r1 += 0  # Track that we skipped it
             
             scaler.scale(d_loss_total).backward()
+            
+            # ... rest of your code ...
             
             if config["grad_clip"]:
                 torch.nn.utils.clip_grad_norm_(discriminator.parameters(), config["grad_clip"])
@@ -375,5 +419,5 @@ def plot_training_curves(g_losses, d_losses, r1_penalties, save_dir):
 if __name__ == "__main__":
     import torch.nn.functional as F 
     
-    generator, discriminator, g_losses, d_losses = train_stylegan(training_config, checkpoint_path="/content/drive/MyDrive/stylegan_checkpoint_epoch_15.pth")
+    generator, discriminator, g_losses, d_losses = train_stylegan(training_config, checkpoint_path="/content/drive/MyDrive/stylegan_checkpoints/stylegan_checkpoint_epoch_22.pth")
     print("\n✓ Training completed successfully!")
