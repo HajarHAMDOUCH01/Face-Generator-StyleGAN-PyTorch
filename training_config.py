@@ -1,43 +1,44 @@
 training_config = {
     # Architecture
-    "image_size": 128,  # Target resolution
-    "z_dim": 512,  # Latent dimension
-    "w_dim": 512,  # Intermediate latent dimension
-    "mapping_layers": 4,  # Depth of mapping network (paper uses 8)
+    "image_size": 128,
+    "z_dim": 512,
+    "w_dim": 512,
+    "mapping_layers": 4,  
     
     # Training
-    "batch_size": 40,
+    "batch_size": 32,
     "num_epochs": 300,
     "num_workers": 2,
 
-
-    # TO DO : These learning rates need schedulers !
-    "g_lr": 0.0006,  # Generator learning rate 
-    "d_lr": 0.0006,  # Discriminator learning rate
+    # Learning rates
+    "g_lr": 0.003,      
+    "d_lr": 0.0003,     
     "adam_beta1": 0.0,
-    "adam_beta2": 0.999,
+    "adam_beta2": 0.99,
     "adam_eps": 1e-8,
     
     # Regularization
-    "r1_gamma": 5.0,  # R1 regularization weight (paper uses 10)
-    "mixing_prob": 0.8,  # Style mixing probability (paper uses 90%)
+    "r1_gamma": 1.0,    
+    "mixing_prob": 0.9,  
     "style_mixing_prob": 0.9,  
     
     # Loss
-    "loss_type": "non_saturating",  
+    "loss_type": "non_saturating",
     
-    # Progressive growing settings
-    "start_size": 4,  # Starting resolution (paper starts from 4x4)
-    "progressive_growing": False,  
+    "r1_interval": 16,  
+    
+    # Progressive growing
+    "start_size": 4,
+    "progressive_growing": False,
     
     # Paths
     "dataset_path": "/kaggle/input/celeba-dataset/img_align_celeba/img_align_celeba",
     "save_dir": "/content/drive/MyDrive/stylegan_checkpoints",
     
-    "save_every": 5,
+    "save_every": 2,
     "sample_every": 5,
-    "log_every": 50,  
+    "log_every": 50,
     
-    # Gradient clipping
-    "grad_clip": None,  
+    # Gradient clipping 
+    "grad_clip": 1.0,  # ✅ Clip gradients to prevent explosions
 }
