@@ -11,14 +11,14 @@ training_config = {
     "num_workers": 2,
 
     # Learning rates
-    "g_lr": 0.003,      
-    "d_lr": 0.0003,     
+    "g_lr": 0.004,      
+    "d_lr": 0.0002,     
     "adam_beta1": 0.0,
     "adam_beta2": 0.99,
     "adam_eps": 1e-8,
     
     # Regularization
-    "r1_gamma": 1.0,    
+    "r1_gamma": 0.5,    
     "mixing_prob": 0.9,  
     "style_mixing_prob": 0.9,  
     
@@ -26,6 +26,7 @@ training_config = {
     "loss_type": "non_saturating",
     
     "r1_interval": 16,  
+    "n_critic" : 2,
     
     # Progressive growing
     "start_size": 4,
@@ -40,5 +41,5 @@ training_config = {
     "log_every": 50,
     
     # Gradient clipping 
-    "grad_clip": 1.0,  # ✅ Clip gradients to prevent explosions
+    "grad_clip": 1.0,  
 }
