@@ -241,7 +241,7 @@ def train_stylegan(config, checkpoint_path=None):
     g_losses = []
     d_losses = []
     r1_penalties = []
-    
+
     for epoch in range(start_epoch, num_epochs):
         generator.train()
         discriminator.train()
@@ -250,6 +250,7 @@ def train_stylegan(config, checkpoint_path=None):
         epoch_d_loss = 0
         epoch_r1 = 0
         num_batches = 0
+        g_updates = 0  # Track generator updates separately
         
         loop = tqdm(dataloader, leave=True, desc=f"Epoch {epoch+1}/{num_epochs}")
         
@@ -271,26 +272,21 @@ def train_stylegan(config, checkpoint_path=None):
             real_scores = discriminator(real_images)
             fake_scores = discriminator(fake_images.detach())
             
-            # Discriminator loss (base adversarial loss)
+            # Discriminator loss
             d_loss = discriminator_loss(real_scores, fake_scores)
             
-            # ✅ LAZY R1: Only apply every r1_interval batches
-            r1_interval = config.get("r1_interval", 16)  # Default to 16 if not set
+            # R1 regularization
+            r1_interval = config.get("r1_interval", 16)
+            r1_penalty = torch.tensor(0.0, device=device)
             
             if batch_idx % r1_interval == 0:
-                # Apply R1 regularization
                 r1_penalty = compute_gradient_penalty(discriminator, real_images, fake_images)
-                # Scale by interval to compensate for less frequent application
                 d_loss_total = d_loss + config["r1_gamma"] * r1_penalty * r1_interval
                 epoch_r1 += r1_penalty.item()
             else:
-                # No R1 penalty this step
                 d_loss_total = d_loss
-                epoch_r1 += 0  # Track that we skipped it
             
             scaler.scale(d_loss_total).backward()
-            
-            # ... rest of your code ...
             
             if config["grad_clip"]:
                 torch.nn.utils.clip_grad_norm_(discriminator.parameters(), config["grad_clip"])
@@ -298,28 +294,33 @@ def train_stylegan(config, checkpoint_path=None):
             scaler.step(d_optimizer)
             scaler.update()
 
-            # ==================== Train Generator ====================
-            g_optimizer.zero_grad()
+            # ==================== Train Generator (Multiple Times) ====================
+            n_critic = config.get("n_critic", 2)  # Train G this many times per D update
             
-            # Generate new fake images
-            z1 = torch.randn(batch_size_actual, z_dim, device=device)
-            z2 = torch.randn(batch_size_actual, z_dim, device=device)
+            for _ in range(n_critic):
+                g_optimizer.zero_grad()
+                
+                # Generate new fake images
+                z1 = torch.randn(batch_size_actual, z_dim, device=device)
+                z2 = torch.randn(batch_size_actual, z_dim, device=device)
+                
+                fake_images, _ = generator(z1, z2)
+                
+                # Generator loss
+                fake_scores = discriminator(fake_images)
+                g_loss = generator_loss(fake_scores)
+                
+                scaler.scale(g_loss).backward()
+                
+                if config["grad_clip"]:
+                    torch.nn.utils.clip_grad_norm_(generator.parameters(), config["grad_clip"])
+                
+                scaler.step(g_optimizer)
+                scaler.update()
+                
+                epoch_g_loss += g_loss.item()
+                g_updates += 1
             
-            fake_images, _ = generator(z1, z2)
-            
-            # Generator loss
-            fake_scores = discriminator(fake_images)
-            g_loss = generator_loss(fake_scores)
-            
-            scaler.scale(g_loss).backward()
-            
-            if config["grad_clip"]:
-                torch.nn.utils.clip_grad_norm_(generator.parameters(), config["grad_clip"])
-            
-            scaler.step(g_optimizer)
-            scaler.update()
-            
-            epoch_g_loss += g_loss.item()
             epoch_d_loss += d_loss.item()
             num_batches += 1
             
@@ -329,13 +330,13 @@ def train_stylegan(config, checkpoint_path=None):
                 "R1": f"{r1_penalty.item():.4f}" if r1_penalty.item() > 0 else "0.0000",
             })
             
-            # Periodic memory cleanup as optimization
             if batch_idx % 100 == 0:
                 clear_memory()
         
-        avg_g_loss = epoch_g_loss / num_batches
+        avg_g_loss = epoch_g_loss / g_updates  # Divide by actual number of G updates
         avg_d_loss = epoch_d_loss / num_batches
-        avg_r1 = epoch_r1 / max(1, num_batches // 16)
+        avg_r1 = epoch_r1 / max(1, num_batches // r1_interval)
+    
         
         g_losses.append(avg_g_loss)
         d_losses.append(avg_d_loss)
