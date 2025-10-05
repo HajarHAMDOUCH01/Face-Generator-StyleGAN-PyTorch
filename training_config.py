@@ -8,8 +8,8 @@ training_config = {
     "num_epochs": 300,
     "num_workers": 2,
 
-    "g_lr": 0.0003,       
-    "d_lr": 0.001,       
+    "g_lr": 0.0015,       
+    "d_lr": 0.0005,       
     "adam_beta1": 0.0,
     "adam_beta2": 0.99,
     "adam_eps": 1e-8,
@@ -25,9 +25,9 @@ training_config = {
     "sample_every": 2,
     "log_every": 50,
 
-    "plr_weight": 2.0,      
-    "plr_interval": 16,      
+    "plr_weight": 2.0,  
+    "plr_interval": 16,   
     "plr_decay": 0.01,      
     
-    "r1_gamma": 5.0,
+    "r1_gamma": 10.0,
 }
