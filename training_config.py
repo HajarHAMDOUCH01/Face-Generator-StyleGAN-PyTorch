@@ -15,6 +15,7 @@ training_config = {
     "adam_eps": 1e-8,
     
     "style_mixing_prob": 0.9,  
+    "n_critic" : 5,
         
     "dataset_path": "/kaggle/input/celeba-dataset/img_align_celeba/img_align_celeba",
     "save_dir": "/content/drive/MyDrive/stylegan_checkpoints",
