@@ -9,7 +9,7 @@ training_config = {
     "num_workers": 4,
 
     "g_lr": 0.002,       
-    "d_lr": 0.002,       
+    "d_lr": 0.0005,       
     "adam_beta1": 0.0,
     "adam_beta2": 0.99,
     "adam_eps": 1e-6,
@@ -27,8 +27,8 @@ training_config = {
     "plr_interval": 4,   
     "plr_decay": 0.01,      
     
-    "r1_gamma": 6.0,
-    "r1_interval": 16,  
+    "r1_gamma": 15.0,
+    "r1_interval": 4,  
 
 }
 

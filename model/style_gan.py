@@ -218,24 +218,54 @@ class SynthesisNetwork(nn.Module):
 
 class MinibatchStdDev(nn.Module):
     """Minibatch standard deviation layer for discriminator"""
-    def __init__(self, group_size=4):
+    def __init__(self, group_size=4, eps=1e-8):
         super().__init__()
         self.group_size = group_size
+        self.eps = eps
     
     def forward(self, x):
         batch_size, channels, height, width = x.shape
+        
+        # Handle case where batch_size < group_size or not divisible
+        if batch_size <= 1:
+            # Can't compute stddev with batch of 1, just add zeros
+            stddev_channel = torch.zeros(batch_size, 1, height, width, device=x.device)
+            return torch.cat([x, stddev_channel], dim=1)
+        
         group_size = min(batch_size, self.group_size)
         
-        # Split batch into groups
-        y = x.reshape(group_size, -1, channels, height, width)
-        y = y - y.mean(dim=0, keepdim=True)
-        y = torch.sqrt(y.pow(2).mean(dim=0) + 1e-8)
-        y = y.mean(dim=[1, 2, 3], keepdim=True)
-        y = y.repeat(group_size, 1, height, width)
+        # Only use batches divisible by group_size
+        if batch_size % group_size != 0:
+            # Trim batch to be divisible
+            usable_batch = (batch_size // group_size) * group_size
+            x_grouped = x[:usable_batch]
+            x_remainder = x[usable_batch:]
+        else:
+            x_grouped = x
+            x_remainder = None
         
-        # Concatenate as new channel
+        # Compute stddev for grouped portion
+        num_groups = x_grouped.shape[0] // group_size
+        y = x_grouped.reshape(num_groups, group_size, channels, height, width)
+        
+        # Compute stddev across group dimension
+        y = y - y.mean(dim=1, keepdim=True)
+        y = torch.sqrt(y.pow(2).mean(dim=1) + self.eps)
+        
+        # Average across channels and spatial dimensions
+        y = y.mean(dim=[1, 2, 3], keepdim=True)
+        
+        # Replicate to match spatial dimensions
+        y = y.repeat(1, group_size, 1, height, width)
+        y = y.reshape(-1, 1, height, width)
+        
+        # Handle remainder if exists
+        if x_remainder is not None:
+            # Use last computed stddev for remainder
+            remainder_stddev = y[-1:].repeat(x_remainder.shape[0], 1, 1, 1)
+            y = torch.cat([y, remainder_stddev], dim=0)
+        
         return torch.cat([x, y], dim=1)
-
 
 class Discriminator(nn.Module):
     """Progressive discriminator (mirrors generator structure)"""
