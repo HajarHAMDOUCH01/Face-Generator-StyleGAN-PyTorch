@@ -30,7 +30,7 @@ class EqualizedLinear(nn.Module):
 class EqualizedConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, gain=2):
         super().__init__()
-        self.weight = nn.Parameter(torch.randn(out_channels, in_channels, kernel_size, kernel_size) * 0.1)
+        self.weight = nn.Parameter(torch.randn(out_channels, in_channels, kernel_size, kernel_size))
         self.bias = nn.Parameter(torch.zeros(out_channels))
         self.stride = stride
         self.padding = padding
@@ -181,11 +181,11 @@ class Discriminator(nn.Module):
             8: 512,
             16: 512,
             32: 512,
-            64: 512,
+            64: 256,
             128: 256,
-            256: 128,
-            512: 64,
-            1024: 32,
+            256: 64,  
+            512: 32,
+            1024: 16,
         }
         
         convs = []
