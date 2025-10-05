@@ -92,8 +92,8 @@ class AdaIN(nn.Module):
         super().__init__()
         self.instance_norm = nn.InstanceNorm2d(channels, affine=False)
         # Learned affine transform "A" from Figure 1b
-        self.style_scale = EqualizedLinear(w_dim, channels, gain=1)
-        self.style_bias = EqualizedLinear(w_dim, channels, gain=1)
+        self.style_scale = EqualizedLinear(w_dim, channels, gain=2)  # ✓ Stronger modulation
+        self.style_bias = EqualizedLinear(w_dim, channels, gain=2)   # ✓ Stronger modulation
     
     def forward(self, x, w):
         # Normalize to zero mean, unit variance
@@ -226,7 +226,6 @@ class MinibatchStdDev(nn.Module):
     def forward(self, x):
         batch_size, channels, height, width = x.shape
         
-        # Handle case where batch_size < group_size or not divisible
         if batch_size <= 1:
             # Can't compute stddev with batch of 1, just add zeros
             stddev_channel = torch.zeros(batch_size, 1, height, width, device=x.device)
@@ -234,7 +233,6 @@ class MinibatchStdDev(nn.Module):
         
         group_size = min(batch_size, self.group_size)
         
-        # Only use batches divisible by group_size
         if batch_size % group_size != 0:
             # Trim batch to be divisible
             usable_batch = (batch_size // group_size) * group_size
@@ -309,7 +307,7 @@ class Discriminator(nn.Module):
         # Final 4×4 block with minibatch stddev
         self.minibatch_stddev = MinibatchStdDev()
         self.final_conv = EqualizedConv2d(in_ch + 1, 512, kernel_size=3, padding=1, gain=2)
-        self.final_linear = EqualizedLinear(512 * 4 * 4, 1, gain=1)
+        self.final_linear = EqualizedLinear(512 * 4 * 4, 1, gain=2)  # ✓ Proper scaling        
         self.activation = nn.LeakyReLU(0.2)
     
     def forward(self, x: Tensor) -> Tensor:
@@ -350,21 +348,18 @@ class StyleGAN(nn.Module):
             self.w_mean = w_sum / num_samples
             self.w_mean_samples = num_samples
     
-    def forward(self, z1: Tensor, z2: Optional[Tensor] = None, return_w: bool = False) -> tuple[Tensor, Optional[Tensor]]:
+    def forward(self, z1: Tensor, z2: Optional[Tensor] = None, return_w: bool = False):
         w1 = self.mapping(z1)
+        num_layers = self.synthesis.num_layers
         
-        # Style mixing during training
         if self.training and z2 is not None and torch.rand(1).item() < self.style_mixing_prob:
             w2 = self.mapping(z2)
-            
-            # Random crossover point
-            num_layers = self.synthesis.num_layers
             crossover = torch.randint(1, num_layers, (1,)).item()
             
-            w = torch.stack([w1] * num_layers, dim=1)
-            w[:, crossover:] = w2.unsqueeze(1)
+            w = w1.unsqueeze(1).repeat(1, num_layers, 1)
+            w[:, crossover:] = w2.unsqueeze(1).repeat(1, num_layers - crossover, 1)
         else:
-            w = w1
+            w = w1.unsqueeze(1).repeat(1, num_layers, 1)
         
         rgb = self.synthesis(w)
         
