@@ -12,7 +12,7 @@ training_config = {
     "d_lr": 0.0005,       
     "adam_beta1": 0.0,
     "adam_beta2": 0.99,
-    "adam_eps": 1e-6,
+    "adam_eps": 1e-8,
     
     "style_mixing_prob": 0.9,  
         
