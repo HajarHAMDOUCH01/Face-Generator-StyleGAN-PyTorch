@@ -1,18 +1,27 @@
 import torch
+from torch import Tensor
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import sys
+sys.path.append("/content/Face-Generator-StyleGAN-PyTorch")
+from style_gan import StyleGAN
+from training_config import training_config
 
-"""traced model takes ~ 5 seconds on cpu to generate a face"""
+config = {
+        "z_dim" : training_config["z_dim"],
+        "w_dim" : training_config["w_dim"],
+        "img_size" : training_config["img_size"],
+        "img_channels" : training_config["img_channels"],
+        "mapping_layers" : training_config["mapping_layers"],
+        "style_mixing_prob" : training_config["style_mixing_prob"]}
 
-# Load traced model
-scripted_model = torch.jit.load("./scripted_model.pt")
-scripted_model.eval()
 
-# Generate a face
-z = torch.randn(1, 512)
-with torch.no_grad():
-    face = scripted_model(z)
-    # Denormalize from [-1, 1] to [0, 1]
-    face = (face[0] + 1) / 2
-    face = torch.clamp(face, 0, 1)
+def load_model(model_weights_path=""):
+    model = torch.load(model_weights_path, map_location=device)
+    style_gan = StyleGAN(**config)
+    style_gan.load_state_dict(model)
+    generator = style_gan.generator
+    generator.load_state_dict(model.synthe)
 
-from torchvision.utils import save_image
-save_image(face, "generated_face.png")
+def generate_face(z: Tensor, ) -> Tensor:
+    z = torch.randn((1,512), device=device)
+    w = 

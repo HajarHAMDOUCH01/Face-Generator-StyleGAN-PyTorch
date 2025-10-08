@@ -9,7 +9,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class PixelNorm(nn.Module):
-    """Pixel-wise feature vector normalization (section 4.2 in ProGAN paper)"""
     def __init__(self, epsilon=1e-8):
         super().__init__()
         self.epsilon = epsilon
@@ -19,13 +18,12 @@ class PixelNorm(nn.Module):
 
 
 class EqualizedLinear(nn.Module):
-    """Linear layer with equalized learning rate (runtime weight scaling)"""
     def __init__(self, in_features, out_features, bias=True, gain=2):
         super().__init__()
-        # Initialize with N(0,1)
+        # Initializes with N(0,1)
         self.weight = nn.Parameter(torch.randn(out_features, in_features))
         self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
-        # He initialization scale computed at runtime
+        # He initialization scale 
         self.scale = (gain / in_features) ** 0.5
     
     def forward(self, x):
@@ -52,7 +50,6 @@ class EqualizedConv2d(nn.Module):
 
 
 class Blur(nn.Module):
-    """Blur layer for anti-aliasing (config B in paper)"""
     def __init__(self):
         super().__init__()
         # Binomial filter [1, 2, 1]
@@ -69,7 +66,6 @@ class Blur(nn.Module):
 
 
 class MappingNetwork(nn.Module):
-    """Maps latent code z to intermediate latent code w (Figure 1b left)"""
     def __init__(self, z_dim=512, w_dim=512, num_layers=8):
         super().__init__()
         layers = []
@@ -87,25 +83,24 @@ class MappingNetwork(nn.Module):
 
 
 class AdaIN(nn.Module):
-    """Adaptive Instance Normalization (Equation 1 in paper)"""
+    """Adaptive Instance Normalization"""
     def __init__(self, channels, w_dim=512):
         super().__init__()
         self.instance_norm = nn.InstanceNorm2d(channels, affine=False)
-        # Learned affine transform "A" from Figure 1b
-        self.style_scale = EqualizedLinear(w_dim, channels, gain=2)  # ✓ Stronger modulation
-        self.style_bias = EqualizedLinear(w_dim, channels, gain=2)   # ✓ Stronger modulation
+        # Learned affine transform A
+        self.style_scale = EqualizedLinear(w_dim, channels, gain=2)  
+        self.style_bias = EqualizedLinear(w_dim, channels, gain=2)   
     
     def forward(self, x, w):
-        # Normalize to zero mean, unit variance
+        # Normalizes to zero mean, unit variance
         x = self.instance_norm(x)
-        # Apply learned style transformation
+        # Applies learned style transformation
         style_scale = self.style_scale(w).unsqueeze(2).unsqueeze(3)
         style_bias = self.style_bias(w).unsqueeze(2).unsqueeze(3)
         return style_scale * x + style_bias
 
 
 class NoiseInjection(nn.Module):
-    """Stochastic variation through noise (Figure 1b, "B")"""
     def __init__(self, channels):
         super().__init__()
         # Learned per-channel scaling factor
@@ -147,7 +142,7 @@ class StyleBlock(nn.Module):
 
 
 class SynthesisNetwork(nn.Module):
-    """Style-based generator synthesis network (Figure 1b right)"""
+    """Style-based generator synthesis network"""
     def __init__(self, w_dim=512, img_size=128, img_channels=3):
         super().__init__()
         self.w_dim = w_dim
@@ -160,13 +155,15 @@ class SynthesisNetwork(nn.Module):
         self.log_size = int(np.log2(img_size))
         self.num_layers = (self.log_size - 1) * 2  # 2 conv layers per resolution
         
-        # Channel counts matching paper Table 1 architecture
-        # For 128×128: use 512 channels up to 16×16, then reduce
         self.channels = {
             4: 512,
-            8: 512,
-            16: 512,
+            8: 512, 
+            # for these two layers, not like the papaer , 
+            # because channels didn't go down by upsampling from block to block 
+            # this small change was done because i noticed the Descriminator was stonger than the generator
+            16: 512, 
             32: 256,
+
             64: 128,
             128: 64,
         }
@@ -196,10 +193,9 @@ class SynthesisNetwork(nn.Module):
         if w.dim() == 2:
             w = w.unsqueeze(1).repeat(1, self.num_layers, 1)
         
-        # Start from learned constant
         x = self.const.repeat(batch_size, 1, 1, 1)
         
-        # Apply initial 4×4 convolutions
+        # Applies initial 4×4 convolutions
         layer_idx = 0
         x = self.initial_conv1(x, w[:, layer_idx])
         layer_idx += 1
@@ -213,7 +209,7 @@ class SynthesisNetwork(nn.Module):
         
         # Convert to RGB
         rgb = self.to_rgb(x)
-        return torch.tanh(rgb)  # [-1, 1] range
+        return torch.clamp(rgb * 0.2, -1, 1)
 
 
 class MinibatchStdDev(nn.Module):
@@ -227,14 +223,14 @@ class MinibatchStdDev(nn.Module):
         batch_size, channels, height, width = x.shape
         
         if batch_size <= 1:
-            # Can't compute stddev with batch of 1, just add zeros
+            # Can't compute stddev with batch of 1, adds zeros
             stddev_channel = torch.zeros(batch_size, 1, height, width, device=x.device)
             return torch.cat([x, stddev_channel], dim=1)
         
         group_size = min(batch_size, self.group_size)
         
         if batch_size % group_size != 0:
-            # Trim batch to be divisible
+            # Triming of batch to be divisible
             usable_batch = (batch_size // group_size) * group_size
             x_grouped = x[:usable_batch]
             x_remainder = x[usable_batch:]
@@ -242,31 +238,31 @@ class MinibatchStdDev(nn.Module):
             x_grouped = x
             x_remainder = None
         
-        # Compute stddev for grouped portion
+        # Computes stddev for grouped portion
         num_groups = x_grouped.shape[0] // group_size
         y = x_grouped.reshape(num_groups, group_size, channels, height, width)
         
-        # Compute stddev across group dimension
+        # Computes stddev across group dimension
         y = y - y.mean(dim=1, keepdim=True)
         y = torch.sqrt(y.pow(2).mean(dim=1) + self.eps)
         
-        # Average across channels and spatial dimensions
+        # Averages across channels and spatial dimensions
         y = y.mean(dim=[1, 2, 3], keepdim=True)
         
-        # Replicate to match spatial dimensions
+        # Replicates to match spatial dimensions
         y = y.repeat(1, group_size, 1, height, width)
         y = y.reshape(-1, 1, height, width)
         
-        # Handle remainder if exists
+        # Handles remainder if exists
         if x_remainder is not None:
-            # Use last computed stddev for remainder
+            # Uses last computed stddev for remainder
             remainder_stddev = y[-1:].repeat(x_remainder.shape[0], 1, 1, 1)
             y = torch.cat([y, remainder_stddev], dim=0)
         
         return torch.cat([x, y], dim=1)
 
 class Discriminator(nn.Module):
-    """Progressive discriminator (mirrors generator structure)"""
+    """Progressive discriminator"""
     def __init__(self, img_size=128, img_channels=3):
         super().__init__()
         self.img_size = img_size
@@ -307,7 +303,7 @@ class Discriminator(nn.Module):
         # Final 4×4 block with minibatch stddev
         self.minibatch_stddev = MinibatchStdDev()
         self.final_conv = EqualizedConv2d(in_ch + 1, 512, kernel_size=3, padding=1, gain=2)
-        self.final_linear = EqualizedLinear(512 * 4 * 4, 1, gain=2)  # ✓ Proper scaling        
+        self.final_linear = EqualizedLinear(512 * 4 * 4, 1, gain=2)       
         self.activation = nn.LeakyReLU(0.2)
     
     def forward(self, x: Tensor) -> Tensor:
