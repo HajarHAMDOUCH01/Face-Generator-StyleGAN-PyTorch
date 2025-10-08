@@ -18,8 +18,7 @@ sys.path.append("/content/Face-Generator-StyleGAN-PyTorch")
 
 # Initialize once
 hf_api = HfApi()
-HF_TOKEN = "HF_TOKEN"
-HF_REPO = "REPO_NAME"
+
 
 from model.style_gan import StyleGAN, Discriminator
 from training_config import training_config
