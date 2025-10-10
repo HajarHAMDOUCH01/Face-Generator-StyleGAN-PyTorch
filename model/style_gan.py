@@ -158,14 +158,12 @@ class SynthesisNetwork(nn.Module):
         self.channels = {
             4: 512,
             8: 512, 
-            # for these two layers, not like the papaer , 
-            # because channels didn't go down by upsampling from block to block 
-            # this small change was done because i noticed the Descriminator was stonger than the generator
-            16: 512, 
+           
+            16: 256, 
             32: 256,
 
             64: 128,
-            128: 64,
+            128: 128,
         }
         
         # Initial 4×4 block (2 convolutions, no upsampling)
@@ -209,7 +207,7 @@ class SynthesisNetwork(nn.Module):
         
         # Convert to RGB
         rgb = self.to_rgb(x)
-        return torch.clamp(rgb * 0.2, -1, 1)
+        return torch.tanh(rgb)
 
 
 class MinibatchStdDev(nn.Module):
@@ -272,14 +270,15 @@ class Discriminator(nn.Module):
         channels = {
             4: 512,
             8: 512,
-            16: 512,
+            16: 256,
             32: 256,
             64: 128,
-            128: 64,
+            128: 128,
         }
         
         # FromRGB layer
         self.from_rgb = EqualizedConv2d(img_channels, channels[img_size], kernel_size=1, gain=2)
+        
         
         # Progressive downsampling blocks
         convs = []
@@ -289,21 +288,28 @@ class Discriminator(nn.Module):
             res = 2 ** i
             out_ch = channels[res // 2]
             
-            convs.append(EqualizedConv2d(in_ch, in_ch, kernel_size=3, padding=1, gain=2))
+            # First conv: in_ch -> in_ch (same resolution)
+            convs.append(EqualizedConv2d(in_ch, in_ch, kernel_size=3, padding=1, gain=2)
+            )
             convs.append(nn.LeakyReLU(0.2))
             convs.append(Blur())
-            convs.append(EqualizedConv2d(in_ch, out_ch, kernel_size=3, padding=1, gain=2))
-            convs.append(nn.LeakyReLU(0.2))
-            convs.append(nn.AvgPool2d(2))
             
-            in_ch = out_ch
+            # Second conv: in_ch -> out_ch (prepare for downsampling)
+            convs.append(EqualizedConv2d(in_ch, out_ch, kernel_size=3, padding=1, gain=2)
+            )
+            convs.append(nn.LeakyReLU(0.2))
+            convs.append(nn.AvgPool2d(2))  # Downsample after changing channels
+            
+            in_ch = out_ch  # Update for next iteration
         
         self.convs = nn.Sequential(*convs)
         
         # Final 4×4 block with minibatch stddev
         self.minibatch_stddev = MinibatchStdDev()
         self.final_conv = EqualizedConv2d(in_ch + 1, 512, kernel_size=3, padding=1, gain=2)
-        self.final_linear = EqualizedLinear(512 * 4 * 4, 1, gain=2)       
+        
+        self.final_linear = EqualizedLinear(512 * 4 * 4, 1, gain=1)
+        
         self.activation = nn.LeakyReLU(0.2)
     
     def forward(self, x: Tensor) -> Tensor:
@@ -345,18 +351,24 @@ class StyleGAN(nn.Module):
             self.w_mean_samples = num_samples
     
     def forward(self, z1: Tensor, z2: Optional[Tensor] = None, return_w: bool = False):
+        # Map z1 to w space
         w1 = self.mapping(z1)
         num_layers = self.synthesis.num_layers
+        mix_prob = self.style_mixing_prob if self.training else 0.0
         
-        if self.training and z2 is not None and torch.rand(1).item() < self.style_mixing_prob:
+        # Style mixing during training
+        if self.training and z2 is not None and torch.rand(1).item() < mix_prob:
             w2 = self.mapping(z2)
             crossover = torch.randint(1, num_layers, (1,)).item()
             
-            w = w1.unsqueeze(1).repeat(1, num_layers, 1)
-            w[:, crossover:] = w2.unsqueeze(1).repeat(1, num_layers - crossover, 1)
+            w = torch.cat([
+                w1.unsqueeze(1).expand(-1, crossover, -1),
+                w2.unsqueeze(1).expand(-1, num_layers - crossover, -1)
+            ], dim=1)
         else:
-            w = w1.unsqueeze(1).repeat(1, num_layers, 1)
+            w = w1.unsqueeze(1).expand(-1, num_layers, -1).clone()
         
+        # Generate image
         rgb = self.synthesis(w)
         
         if return_w:
@@ -372,4 +384,6 @@ class StyleGAN(nn.Module):
                 self.update_w_mean()
             w = self.w_mean + truncation_psi * (w - self.w_mean)
         
-        return self.synthesis(w)
+        # For generation, we need to expand w for all layers
+        w_expanded = w.unsqueeze(1).expand(-1, self.synthesis.num_layers, -1)
+        return self.synthesis(w_expanded)

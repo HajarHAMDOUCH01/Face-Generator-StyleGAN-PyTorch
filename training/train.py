@@ -12,13 +12,17 @@ from pathlib import Path
 import torch.nn.functional as F
 import numpy as np
 from huggingface_hub import HfApi
+from dotenv import load_dotenv
+import os
 
 import sys 
 sys.path.append("/content/Face-Generator-StyleGAN-PyTorch")
 
-# Initialize once
-hf_api = HfApi()
+load_dotenv()
 
+HF_TOKEN = os.getenv("HF_TOKEN")
+HF_REPO = os.getenv("HF_REPO")
+hf_api = HfApi()
 
 from model.style_gan import StyleGAN, Discriminator
 from training_config import training_config
@@ -39,8 +43,6 @@ def path_length_regularization(fake_images, w, mean_path_length, decay=0.01):
     
     noise = torch.randn_like(fake_images) / np.sqrt(fake_images.shape[2] * fake_images.shape[3])
     
-    # Computes gradients of (image * noise) w.r.t. w
-    # This is the Jacobian-vector product
     grad_outputs = (fake_images * noise).sum()
     
     gradients = torch.autograd.grad(
@@ -73,21 +75,47 @@ def path_length_regularization(fake_images, w, mean_path_length, decay=0.01):
     return path_penalty, mean_path_length, path_mean.item()
 
 class CelebADataset(Dataset):
-    """CelebA dataset loader"""
     def __init__(self, root, transform=None, limit=None):
-        self.root = Path(root)
+        self.root = root
         self.transform = transform
-        self.image_files = sorted(list(self.root.glob("*.jpg")))[:limit]
+        
+        # all image files with common extensions
+        valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp')
+        
+        # all files in the directory
+        all_files = os.listdir(root)
+        
+        # Filter for image files only
+        self.image_paths = [
+            os.path.join(root, f) 
+            for f in all_files 
+            if f.lower().endswith(valid_extensions)
+        ]
+        
+        self.image_paths.sort()
+        
+        print(f"Found {len(self.image_paths)} images in {root}")
+        
+        # Applies limit if specified
+        if limit is not None and limit > 0:
+            self.image_paths = self.image_paths[:limit]
+            print(f"Limited to {len(self.image_paths)} images")
     
     def __len__(self):
-        return len(self.image_files)
+        return len(self.image_paths)
     
     def __getitem__(self, idx):
-        img_path = self.image_files[idx]
+        img_path = self.image_paths[idx]
+        
+        # Load image
         image = Image.open(img_path).convert('RGB')
+        
+        # Apply transforms
         if self.transform:
             image = self.transform(image)
+        
         return image
+
 
 
 def get_transforms(img_size):
@@ -197,11 +225,11 @@ def load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, ada
     else:
         print("Warning: No ADA state in checkpoint, starting fresh")
     
-    print(f"Successfully loaded checkpoint from epoch {checkpoint['epoch']}")
+    print(f"Successfully loaded checkpoint from epoch {checkpoint['epoch']+1}")
     
     return generator, discriminator, g_optimizer, d_optimizer, start_epoch, ada
 
-def train_stylegan(config, checkpoint_path=None):
+def train_stylegan(config, checkpoint_path):
     
     img_size = config["image_size"]
     z_dim = config["z_dim"]
@@ -239,20 +267,6 @@ def train_stylegan(config, checkpoint_path=None):
         eps=config["adam_eps"]
     )
 
-
-    # scheduler_g = torch.optim.lr_scheduler.CosineAnnealingLR(
-    #     g_optimizer, 
-    #     T_max=config["num_epochs"],
-    #     eta_min=config["adam_eps"]  
-    # )
-
-    # scheduler_d = torch.optim.lr_scheduler.CosineAnnealingLR(
-    #     d_optimizer, 
-    #     T_max=config["num_epochs"],
-    #     eta_min=config["adam_eps"]
-    # )
-
-    
     # Dataset
     transform = get_transforms(img_size)
     dataset = CelebADataset(
@@ -269,31 +283,27 @@ def train_stylegan(config, checkpoint_path=None):
         pin_memory=True,
         drop_last=True,
         persistent_workers=True if config["num_workers"] > 0 else False,
-        generator=torch.Generator().manual_seed(epoch)
+    )
+
+    ada = ADAugment(
+        target_rt=config["target_rt"],
+        adjustment_speed_imgs=config["adjustment_speed_imgs"],
+        batch_size=config["batch_size"],
+        initial_p=config["initial_p"],
+        update_interval=config["update_interval"],
+        device=device
     )
     
-    # print(f"\nTraining Configuration:")
-    # print(f"- Image size: {img_size}x{img_size}")
-    # print(f"- Batch size: {batch_size}")
-    # print(f"- Generator LR: {config['g_lr']}")
-    # print(f"- Discriminator LR: {config['d_lr']}")
-    # print(f"- R1 gamma: {config['r1_gamma']}")
-    # print(f"- Dataset size: {len(dataset)}")
-    # print(f"- Total epochs: {num_epochs}\n")
-
 
     start_epoch = 0
     if checkpoint_path and os.path.exists(checkpoint_path):
         generator, discriminator, g_optimizer, d_optimizer, start_epoch, ada = load_from_checkpoint(
-            generator, discriminator, g_optimizer, d_optimizer, checkpoint_path
+            generator, discriminator, g_optimizer, d_optimizer, ada, checkpoint_path
         )
         print(f"Resuming from {checkpoint_path} at epoch {start_epoch}")
     else:
         print(f"Starting training from epoch 0")
     
-    # generator.synthesis = torch.compile(generator.synthesis)
-    # discriminator = torch.compile(discriminator)
-
     g_losses = []
     d_losses = []
     r1_penalties = []
@@ -306,15 +316,6 @@ def train_stylegan(config, checkpoint_path=None):
     plr_interval = config.get("plr_interval", 4)  
     plr_decay = config.get("plr_decay", 0.01) 
     warmup_epochs = 5
-
-    ada = ADAugment(
-        target_rt=config["target_rt"],
-        adjustment_speed_imgs=config["adjustment_speed_imgs"],
-        batch_size=config["batch_size"],
-        initial_p=config["initial_p"],
-        update_interval=config["update_interval"],
-        device=device
-    )
 
     for epoch in range(start_epoch, num_epochs):
         # Dynamic R1 gamma during warmup
@@ -343,21 +344,25 @@ def train_stylegan(config, checkpoint_path=None):
             # ==================== Train Discriminator ====================
             d_loss_accum = 0.0
             r1_penalty_accum = 0.0
-            
+
+            # Collect real_scores for ADA BEFORE the n_critic loop or accumulate them
+            ada_real_scores = []  # Collect scores for ADA
+
             for _ in range(n_critic):
                 discriminator.requires_grad_(True)
                 generator.requires_grad_(False)
-                
+                assert not any(p.requires_grad for p in generator.parameters()), "Generator params still require grad!"
+
+                discriminator.zero_grad()
                 d_optimizer.zero_grad()
                 
                 z1 = torch.randn(batch_size_actual, z_dim, device=device)
                 z2 = torch.randn(batch_size_actual, z_dim, device=device)
                 
-                # Generate fake images
-                with torch.no_grad():
-                    fake_images, _ = generator(z1, z2)
+                fake_images, _ = generator(z1, z2)
+                fake_images = fake_images.detach()
                 
-                # ===== Apply ADA augmentation =====
+                # ===== ADA augmentation =====
                 real_images_aug = ada.apply(real_images)
                 fake_images_aug = ada.apply(fake_images)
                 
@@ -365,91 +370,70 @@ def train_stylegan(config, checkpoint_path=None):
                 real_scores = discriminator(real_images_aug)
                 fake_scores = discriminator(fake_images_aug)
                 
+                # collecting scores for ADA (detach to avoid holding computation graph)
+                ada_real_scores.append(real_scores.detach())
+                
                 # Base discriminator loss
                 d_loss = d_logistic_loss(real_scores, fake_scores)
                 
                 # ===== R1 Regularization =====
                 r1_penalty = torch.tensor(0.0, device=device)
                 if batch_idx % config["r1_interval"] == 0:
-                    # Option A: Reuse the same augmentation (efficient)
-                    # We need to re-augment with requires_grad=True because
-                    # the first augmentation was applied to a tensor without requires_grad
-                    real_images.requires_grad_(True)  # Enable grad on source
+                    real_images.requires_grad_(True)
                     real_images_aug_r1 = ada.apply(real_images)
                     
                     r1_penalty = compute_gradient_penalty(discriminator, real_images_aug_r1)
                     
-                    # Clear requires_grad after R1 computation
                     real_images.requires_grad_(False)
                     
-                    # Lazy R1: scale by interval
                     d_loss_with_r1 = d_loss + (current_r1_gamma / 2) * r1_penalty * config["r1_interval"]
                     r1_penalty_accum += r1_penalty.item()
                 else:
                     d_loss_with_r1 = d_loss
                 
-                # Backward and optimize
                 d_loss_with_r1.backward()
                 d_optimizer.step()
+
+                if batch_idx % 100 == 0:
+                    with torch.no_grad():
+                        real_mean = real_scores.mean().item()
+                        fake_mean = fake_scores.mean().item()
+                        real_std = real_scores.std().item()
+                        fake_std = fake_scores.std().item()
+                        
+                        
+                        print(f"\n[Batch {batch_idx}] Discriminator Health Check:")
+                        print(f"  Separation: {abs(real_mean - fake_mean):.3f}")
+                        # Show mean of rt indicator over last 10 batches
+                        if len(ada.rt_history) >= 100:
+                            rt_mean = torch.tensor(ada.rt_history[-10:]).mean().item()
+                            print(f"  RT Mean (last 100 batches): {rt_mean:.4f}")
+                        else:
+                            rt_mean = torch.tensor(ada.rt_history).mean().item() if ada.rt_history else 0.0
+                            print(f"  RT Mean (last {len(ada.rt_history)} batches): {rt_mean:.4f}")
                 
-                # Accumulate losses (use the actual optimized loss)
                 d_loss_accum += d_loss.item()
-            
-            # ===== ADA Update (once per batch, outside n_critic loop) =====
-            current_p = ada.update(real_scores)
-            
+
+            # ===== ADA Update (using accumulated scores) =====
+            # Concatenate all real_scores from n_critic iterations , if it is applied
+            all_real_scores = torch.cat(ada_real_scores, dim=0)
+            current_p = ada.update(all_real_scores)
+
             # Accumulate epoch statistics
             epoch_d_loss += d_loss_accum / n_critic
             if r1_penalty_accum > 0:
                 epoch_r1 += r1_penalty_accum / n_critic
-            
-            # ===== Diagnostics (after everything is computed) =====
-            if batch_idx == 0 and epoch < 3:
-                print(f"\n=== ADA Diagnostic (Epoch {epoch}, Batch {batch_idx}) ===")
-                print(f"ADA p: {ada.p:.4f}")
-                print(f"ADA buffer size: {len(ada.logits_buffer)}")
-                print(f"Real images range: [{real_images.min():.2f}, {real_images.max():.2f}]")
-                print(f"Real aug range: [{real_images_aug.min():.2f}, {real_images_aug.max():.2f}]")
-                print(f"Fake aug range: [{fake_images_aug.min():.2f}, {fake_images_aug.max():.2f}]")
-                print(f"Real logits (first 4): {real_scores[:4].detach().cpu().numpy()}")
-                print(f"Fake logits (first 4): {fake_scores[:4].detach().cpu().numpy()}")
-                print(f"r_t (if available): {ada.rt_history[-1] if ada.rt_history else 'N/A'}")
-                print(f"Real images on device: {real_images.device}")
-                print("=" * 60)
-        
-            
+
+            discriminator.zero_grad()
+            d_optimizer.zero_grad()
+
             # ==================== Train Generator ====================
-            if batch_idx == 0 and epoch == 0:
-                print("\n=== Generator Forward Pass Test ===")
-                test_z1 = torch.randn(2, z_dim, device=device)
-                test_z2 = torch.randn(2, z_dim, device=device)
-                
-                test_fake, test_w = generator(test_z1, test_z2, return_w=True)
-                print(f"fake_images shape: {test_fake.shape}")
-                print(f"w shape: {test_w.shape if test_w is not None else 'None'}")
-                print(f"w requires_grad: {test_w.requires_grad if test_w is not None else 'N/A'}")
-                print(f"fake_images requires_grad: {test_fake.requires_grad}")
-                
-                # Test augmentation
-                test_aug = ada.apply(test_fake)
-                print(f"Augmented range: [{test_aug.min():.2f}, {test_aug.max():.2f}]")
-                
-                # Test gradient flow
-                test_scores = discriminator(test_aug)
-                test_loss = test_scores.mean()
-                test_loss.backward()
-                
-                has_grad = any(p.grad is not None for p in generator.parameters())
-                print(f"Generator received gradients: {has_grad}")
-                print("=" * 50 + "\n")
-                
-                # Clear test gradients
-                generator.zero_grad()
             discriminator.requires_grad_(False)
             generator.requires_grad_(True)
-
+            generator.zero_grad()
             g_optimizer.zero_grad()
 
+            # new random latents for generator training
             z1 = torch.randn(batch_size_actual, z_dim, device=device)
             z2 = torch.randn(batch_size_actual, z_dim, device=device)
 
@@ -458,7 +442,6 @@ def train_stylegan(config, checkpoint_path=None):
 
             # Handle case where generator didn't return w (shouldn't happen with return_w=True, but defensive)
             if w is None:
-                # Manually compute w
                 w = generator.mapping(generator.mapping.pixel_norm(z1))
                 fake_images = generator.synthesis(w)
 
@@ -471,41 +454,67 @@ def train_stylegan(config, checkpoint_path=None):
             # Non-saturating loss
             g_loss = g_nonsaturating_loss(fake_scores)
 
-            # Path Length Regularization (computed on NON-augmented images)
-            plr_loss = torch.tensor(0.0, device=device)
-            plr_value = 0.0
+            g_loss.backward()
 
-            if batch_idx % plr_interval == 0:
-                # PLR measures smoothness in generator's native output space
-                # We use fake_images (non-augmented) because:
-                # 1. PLR is about generator geometry, not discriminator perception
-                # 2. Augmentations add noise that would corrupt the path length measurement
-                plr_loss, mean_path_length, plr_value = path_length_regularization(
-                    fake_images, w, mean_path_length, decay=plr_decay
-                )
-                g_loss_total = g_loss + plr_weight * plr_loss
-                epoch_plr += plr_value
+            if batch_idx % plr_interval == 0:                
+                z_plr = z1[:2].detach()  
+                
+                # Forward pass with w tracking
+                w_plr = generator.mapping(z_plr)
+                w_plr = w_plr.unsqueeze(1).repeat(1, generator.synthesis.num_layers, 1)
+                w_plr.requires_grad_(True)  # gradient tracking on w
+                
+                fake_plr = generator.synthesis(w_plr)
+                
+                # Compute PLR
+                noise = torch.randn_like(fake_plr) / np.sqrt(fake_plr.shape[2] * fake_plr.shape[3])
+                grad_outputs = (fake_plr * noise).sum()
+                
+                gradients = torch.autograd.grad(
+                    outputs=grad_outputs,
+                    inputs=w_plr,
+                    create_graph=True,
+                    only_inputs=True
+                )[0]
+                
+                path_lengths = torch.sqrt(gradients.pow(2).sum(dim=2).mean(dim=1) + 1e-8)
+                path_mean = path_lengths.mean()
+                
+                # Update EMA
+                if mean_path_length == 0:
+                    mean_path_length = path_mean.detach()
+                else:
+                    mean_path_length = mean_path_length + config["plr_decay"] * (path_mean.detach() - mean_path_length)
+                
+                plr_loss = ((path_lengths - mean_path_length) ** 2).mean()
+                
+                # Backward PLR loss separately
+                (plr_weight * plr_loss).backward()
+                                
+                epoch_plr += plr_loss.item()
+                del fake_plr, w_plr, gradients, path_lengths, path_mean
+                torch.cuda.empty_cache()
+                
             else:
-                g_loss_total = g_loss
-
-            g_loss_total.backward()
+                plr_loss = torch.tensor(0.0, device=device)
             g_optimizer.step()
-
+            generator.zero_grad()
+            g_optimizer.zero_grad()
+            discriminator.zero_grad()
+            d_optimizer.zero_grad()
             epoch_g_loss += g_loss.item()
-
             num_batches += 1
 
             loop.set_postfix({
                 "G_loss": f"{g_loss.item():.4f}",
                 "D_loss": f"{d_loss.item():.4f}",
                 "R1": f"{r1_penalty.item():.4f}" if r1_penalty.item() > 0 else "0.0000",
-                "PLR": f"{plr_loss.item():.4f}" if plr_loss.item() > 0 else "0.0000",
-                "ADA_p": f"{ada.p:.3f}",  # Use ada.p property, not current_p
-                "ADA_rt": f"{ada.rt_history[-1]:.3f}" if ada.rt_history else "N/A",
+                "PLR": f"{plr_loss.item():.5f}" if plr_loss.item() > 0 else "0.0000",
+                "ADA_p": f"{ada.p:.7f}",  # Use ada.p property, not current_p
+                "ADA_rt": f"{ada.rt_history[-1]:.4f}" if ada.rt_history else "N/A",
             })
+
         # ==================== End of Epoch ====================
-        # scheduler_g.step()
-        # scheduler_d.step()
         
         avg_g_loss = epoch_g_loss / num_batches
         avg_d_loss = epoch_d_loss / num_batches
@@ -523,16 +532,6 @@ def train_stylegan(config, checkpoint_path=None):
         print(f"  R1 Penalty: {avg_r1:.4f}")
         print(f"  Path Length Penalty: {avg_plr:.4f}")
         print(f"  Mean Path Length: {mean_path_length.item():.4f}")
-
-        # print(f"Real scores: min={real_scores.min().item():.3f}, "
-        #     f"max={real_scores.max().item():.3f}, mean={real_scores.mean().item():.3f}")
-        # print(f"Fake scores: min={fake_scores.min().item():.3f}, "
-        #     f"max={fake_scores.max().item():.3f}, mean={fake_scores.mean().item():.3f}")
-
-        current_g_lr = g_optimizer.param_groups[0]['lr']
-        current_d_lr = d_optimizer.param_groups[0]['lr']
-        # print(f"LR - G: {current_g_lr:.6f}, D: {current_d_lr:.6f}")
-        
         # Save checkpoint
         if (epoch + 1) % config["save_every"] == 0:
             checkpoint = {
@@ -544,7 +543,7 @@ def train_stylegan(config, checkpoint_path=None):
                 'g_losses': g_losses,
                 'd_losses': d_losses,
                 'r1_penalties': r1_penalties,
-                'ada_state': ada.state_dict(),  # ADD THIS
+                'ada_state': ada.state_dict(),  
                 'config': config
             }
             checkpoint_path = os.path.join(save_dir, f'stylegan_checkpoint_epoch_{epoch+1}.pth')
@@ -619,6 +618,6 @@ def plot_training_curves(g_losses, d_losses, r1_penalties, save_dir):
 if __name__ == "__main__":
     generator, discriminator, g_losses, d_losses = train_stylegan(
         training_config, 
-        checkpoint_path="/content/models--hajar001--StyleGAN-Caleba/snapshots/55ee0021e98714410baa7e8902a82c0f5f639a9c/stylegan_checkpoint_epoch_6.pth"
+        checkpoint_path="/content/models--hajar001--StyleGAN-Caleba/snapshots/687ad19c3082ec6083db76e7e8975a5d95a2b91b/stylegan_checkpoint_epoch_5.pth"
     )
     print("\n✓ Training completed successfully!")
