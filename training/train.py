@@ -74,39 +74,48 @@ def path_length_regularization(fake_images, w, mean_path_length, decay=0.01):
     
     return path_penalty, mean_path_length, path_mean.item()
 
+import os
+from PIL import Image
+from torch.utils.data import Dataset
+
 class FFHQDataset(Dataset):
     def __init__(self, root, transform=None, limit=None):
         self.root = root
         self.transform = transform
-        
-        # all image files with common extensions
         self.images = []
-        
-        for directory in os.walk(root):
-            for file in directory:
-                for file in file:
-                    if limit is not None and limit > 0:
-                        if file.endswith(".png") and len(self.images) < limit:
-                            self.images.append(file)
-                        else:
-                            self.images.append(file)
-        
-        print(f"Limited to {len(self.images)} images")
-    
+
+        for dirpath, _, filenames in os.walk(root):
+            dir_name = os.path.basename(dirpath)
+            try:
+                dir_num = int(dir_name)
+            except ValueError:
+                dir_num = None  
+
+            # Collect image paths
+            for file in filenames:
+                if file.lower().endswith(".png"):
+                    full_path = os.path.join(dirpath, file)
+                    self.images.append(full_path)
+                    if limit is not None and len(self.images) >= limit:
+                        break
+
+        self.images.sort(
+            key=lambda path: int(os.path.basename(os.path.dirname(path)))
+        )
+
+        print(f"Loaded {len(self.images)} images from {root}")
+
     def __len__(self):
         return len(self.images)
-    
+
     def __getitem__(self, idx):
         img_path = self.images[idx]
-        
-        # Load image
         image = Image.open(img_path).convert('RGB')
-        
-        # Apply transforms
+
         if self.transform:
             image = self.transform(image)
-        
         return image
+
 
 
 
@@ -411,7 +420,7 @@ def train_stylegan(config, checkpoint_path):
             real_scores_batches.append(real_scores)
             if batch_idx % 100 == 0:
                 import numpy as np
-                separation_100_batches = abs(np.mean(real_scores_batches[-100:]) - np.mean(fake_scores_batches[-100:]))
+                separation_100_batches = abs((real_scores_batches[-100:]).mean() - (fake_scores_batches[-100:]).mean())
                 print(f"seperation in 100 batches : {separation_100_batches:.4f}")
             
 
