@@ -81,6 +81,7 @@ class FFHQDataset(Dataset):
         
         # all image files with common extensions
         valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp')
+        self.images = []
         
         # all files in the directory
         all_directories = os.listdir(root)
