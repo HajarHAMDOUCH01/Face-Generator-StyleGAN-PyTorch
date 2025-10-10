@@ -84,12 +84,15 @@ class FFHQDataset(Dataset):
         self.transform = transform
         self.images = []
 
+        # Walk through all subdirectories (00000, 01000, 02000, ...)
+        # and collect full paths of .png files
         for dirpath, _, filenames in os.walk(root):
+            # Sort directory names numerically, not lexicographically
             dir_name = os.path.basename(dirpath)
             try:
                 dir_num = int(dir_name)
             except ValueError:
-                dir_num = None  
+                dir_num = None  # skip non-numeric folders
 
             # Collect image paths
             for file in filenames:
@@ -99,11 +102,12 @@ class FFHQDataset(Dataset):
                     if limit is not None and len(self.images) >= limit:
                         break
 
+        # Sort images by directory numeric order (important for FFHQ)
         self.images.sort(
             key=lambda path: int(os.path.basename(os.path.dirname(path)))
         )
 
-        print(f"Loaded {len(self.images)} images from {root}")
+        print(f"✅ Loaded {len(self.images)} images from {root}")
 
     def __len__(self):
         return len(self.images)
@@ -400,10 +404,10 @@ def train_stylegan(config, checkpoint_path):
 
                 if batch_idx % 100 == 0:
                     with torch.no_grad():
-                        # real_mean = real_scores.mean().item()
-                        # fake_mean = fake_scores.mean().item()
-                        # real_std = real_scores.std().item()
-                        # fake_std = fake_scores.std().item()
+                        real_mean = real_scores.mean().item()
+                        fake_mean = fake_scores.mean().item()
+                        real_std = real_scores.std().item()
+                        fake_std = fake_scores.std().item()
                         
                         
                         print(f"\n[Batch {batch_idx}] Discriminator Health Check:")
@@ -416,11 +420,11 @@ def train_stylegan(config, checkpoint_path):
                             print(f"  RT Mean (last {len(ada.rt_history)} batches): {rt_mean:.4f}")
                 
                 d_loss_accum += d_loss.item()
-            fake_scores_batches.append(fake_scores)
-            real_scores_batches.append(real_scores)
-            if batch_idx % 100 == 0:
-                separation_100_batches = abs((real_scores_batches[-100:]).mean() - (fake_scores_batches[-100:]).mean())
-                print(f"seperation in 100 batches : {separation_100_batches:.4f}")
+            # fake_scores_batches.append(fake_scores)
+            # real_scores_batches.append(real_scores)
+            # if batch_idx % 100 == 0:
+            #     separation_100_batches = abs((sum(real_scores_batches[-100:])/100) - (sum(fake_scores_batches[-100:])/100))
+            #     print(f"seperation in 100 batches : {separation_100_batches}")
             
 
             # ===== ADA Update (using accumulated scores) =====
@@ -627,6 +631,6 @@ def plot_training_curves(g_losses, d_losses, r1_penalties, save_dir):
 if __name__ == "__main__":
     generator, discriminator, g_losses, d_losses = train_stylegan(
         training_config, 
-        checkpoint_path="/content/models--hajar001--StyleGAN-Caleba/snapshots/687ad19c3082ec6083db76e7e8975a5d95a2b91b/stylegan_checkpoint_epoch_5.pth"
+        checkpoint_path=None
     )
     print("\n✓ Training completed successfully!")

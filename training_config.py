@@ -4,12 +4,12 @@ training_config = {
     "z_dim": 512,
     "w_dim": 512,
     "mapping_layers": 8,  
-    "dataset_limit": None,  
+    "dataset_limit": 60000,  
     
     # Training
-    "batch_size": 64,  
+    "batch_size": 32,  
     "num_epochs": 100, 
-    "num_workers": 4,  
+    "num_workers": 2,  
    
     # Optimizer - StyleGAN2 standard settings
     "adam_beta1": 0.0,
