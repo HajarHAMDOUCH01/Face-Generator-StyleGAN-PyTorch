@@ -335,7 +335,8 @@ def train_stylegan(config, checkpoint_path):
         num_batches = 0
         
         loop = tqdm(dataloader, leave=True, desc=f"Epoch {epoch+1}/{num_epochs}")
-        
+        fake_scores_batches = []
+        real_scores_batches = []
         for batch_idx, real_images in enumerate(loop):
             # ===== Move real images to device =====
             real_images = real_images.to(device, non_blocking=True)
@@ -347,8 +348,9 @@ def train_stylegan(config, checkpoint_path):
 
             # Collect real_scores for ADA BEFORE the n_critic loop or accumulate them
             ada_real_scores = []  # Collect scores for ADA
-
+            
             for _ in range(n_critic):
+
                 discriminator.requires_grad_(True)
                 generator.requires_grad_(False)
                 assert not any(p.requires_grad for p in generator.parameters()), "Generator params still require grad!"
@@ -393,6 +395,7 @@ def train_stylegan(config, checkpoint_path):
                 
                 d_loss_with_r1.backward()
                 d_optimizer.step()
+                
 
                 if batch_idx % 100 == 0:
                     with torch.no_grad():
@@ -403,7 +406,6 @@ def train_stylegan(config, checkpoint_path):
                         
                         
                         print(f"\n[Batch {batch_idx}] Discriminator Health Check:")
-                        print(f"  Separation: {abs(real_mean - fake_mean):.3f}")
                         # Show mean of rt indicator over last 10 batches
                         if len(ada.rt_history) >= 100:
                             rt_mean = torch.tensor(ada.rt_history[-10:]).mean().item()
@@ -413,6 +415,13 @@ def train_stylegan(config, checkpoint_path):
                             print(f"  RT Mean (last {len(ada.rt_history)} batches): {rt_mean:.4f}")
                 
                 d_loss_accum += d_loss.item()
+            fake_scores_batches.append(fake_scores)
+            real_scores_batches.append(real_scores)
+            if batch_idx % 100 == 0:
+                import numpy as np
+                separation_100_batches = abs(np.mean(real_scores_batches[-100:]) - np.mean(fake_scores_batches[-100:]))
+                print(f"seperation in 100 batches : {separation_100_batches:.4f}")
+            
 
             # ===== ADA Update (using accumulated scores) =====
             # Concatenate all real_scores from n_critic iterations , if it is applied
