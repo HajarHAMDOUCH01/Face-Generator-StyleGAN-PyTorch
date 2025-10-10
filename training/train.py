@@ -400,10 +400,10 @@ def train_stylegan(config, checkpoint_path):
 
                 if batch_idx % 100 == 0:
                     with torch.no_grad():
-                        real_mean = real_scores.mean().item()
-                        fake_mean = fake_scores.mean().item()
-                        real_std = real_scores.std().item()
-                        fake_std = fake_scores.std().item()
+                        # real_mean = real_scores.mean().item()
+                        # fake_mean = fake_scores.mean().item()
+                        # real_std = real_scores.std().item()
+                        # fake_std = fake_scores.std().item()
                         
                         
                         print(f"\n[Batch {batch_idx}] Discriminator Health Check:")
@@ -419,7 +419,6 @@ def train_stylegan(config, checkpoint_path):
             fake_scores_batches.append(fake_scores)
             real_scores_batches.append(real_scores)
             if batch_idx % 100 == 0:
-                import numpy as np
                 separation_100_batches = abs((real_scores_batches[-100:]).mean() - (fake_scores_batches[-100:]).mean())
                 print(f"seperation in 100 batches : {separation_100_batches:.4f}")
             
