@@ -144,7 +144,8 @@ class ADAugment:
     
     @property
     def p(self) -> float:
-        return torch.clamp(self._p, min=0.0, max=0.8)
+        return max(0.0, min(self._p, 0.8))
+
     
     def apply(self, images: torch.Tensor, p: Optional[float] = None) -> torch.Tensor:
         """Apply augmentations to images"""
