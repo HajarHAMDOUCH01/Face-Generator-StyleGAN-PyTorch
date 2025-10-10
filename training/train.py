@@ -80,25 +80,18 @@ class FFHQDataset(Dataset):
         self.transform = transform
         
         # all image files with common extensions
-        valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp')
         self.images = []
         
-        # all files in the directory
-        all_directories = os.listdir(root)
         for directory in os.walk(root):
             for file in directory:
-                for image in file:
+                for file in file:
                     if limit is not None and limit > 0:
-                        if image.endswith(".png") and len(self.images) < limit:
-                            self.images.append(image)
+                        if file.endswith(".png") and len(self.images) < limit:
+                            self.images.append(file)
                         else:
-                            self.images.append(image)
+                            self.images.append(file)
         
         print(f"Limited to {len(self.images)} images")
-        
-        # if limit is not None and limit > 0:
-        #     self.images = self.image_paths[:limit]
-        #     print(f"Limited to {len(self.image_paths)} images")
     
     def __len__(self):
         return len(self.images)

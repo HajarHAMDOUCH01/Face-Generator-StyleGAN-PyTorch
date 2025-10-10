@@ -1,43 +1,49 @@
 training_config = {
+    # Architecture
     "image_size": 128,
     "z_dim": 512,
     "w_dim": 512,
     "mapping_layers": 8,  
-    "dataset_limit" : 10000,
+    "dataset_limit": None,  
     
-    "batch_size": 42,  
-    "num_epochs": 50,
-    "num_workers": 2  ,
+    # Training
+    "batch_size": 64,  
+    "num_epochs": 100, 
+    "num_workers": 4,  
    
+    # Optimizer - StyleGAN2 standard settings
     "adam_beta1": 0.0,
     "adam_beta2": 0.99,
     "adam_eps": 1e-8,
-
-
     
-    "g_lr": 0.002,     
-    "d_lr": 0.00015,      
+    # Learning rates 
+    "g_lr": 0.0025,  
+    "d_lr": 0.0025,  
     
-    "plr_weight": 1.0,   
-    "plr_interval": 16,  
+    # Path Length Regularization
+    "plr_weight": 2.0,  
+    "plr_interval": 4, 
+    "plr_decay": 0.01,
     
-    "r1_gamma": 10.0,    
-    "r1_interval": 2,  
-
-    "style_mixing_prob": 0.5,  
+    # R1 Regularization (critical for stability)
+    "r1_gamma": 1.0,  
+    "r1_interval": 16,  
+    
+    # Style Mixing
+    "style_mixing_prob": 0.9,  
         
-    "dataset_path": "/kaggle/input/celeba-dataset/img_align_celeba/img_align_celeba",
+    # Paths
+    "dataset_path": "/content/drive/MyDrive/ffhq-dataset/images1024x1024",  
     "save_dir": "/content/drive/MyDrive/stylegan_checkpoints",
     
-    "save_every": 2,
-    "sample_every": 2,
-    "log_every": 50,
+    # Logging
+    "save_every": 5,  
+    "sample_every": 1, 
+    "log_every": 100, 
 
-    "plr_decay": 0.01,      
-
-    # ADA config
-    "target_rt":0.65,
-    "adjustment_speed_imgs":60_000,
-    "initial_p":0.01,
-    "update_interval":1,        
+    # ADA Configuration (optimized for FFHQ 70k)
+    "target_rt": 0.6,  
+    "adjustment_speed_imgs": 500_000,  
+    "initial_p": 0.0,  
+    "update_interval": 4,  
 }
