@@ -74,7 +74,7 @@ def path_length_regularization(fake_images, w, mean_path_length, decay=0.01):
     
     return path_penalty, mean_path_length, path_mean.item()
 
-class CelebADataset(Dataset):
+class FFHQDataset(Dataset):
     def __init__(self, root, transform=None, limit=None):
         self.root = root
         self.transform = transform
@@ -83,29 +83,27 @@ class CelebADataset(Dataset):
         valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp')
         
         # all files in the directory
-        all_files = os.listdir(root)
+        all_directories = os.listdir(root)
+        for directory in os.walk(root):
+            for file in directory:
+                for image in file:
+                    if limit is not None and limit > 0:
+                        if image.endswith(".png") and len(self.images) < limit:
+                            self.images.append(image)
+                        else:
+                            self.images.append(image)
         
-        # Filter for image files only
-        self.image_paths = [
-            os.path.join(root, f) 
-            for f in all_files 
-            if f.lower().endswith(valid_extensions)
-        ]
+        print(f"Limited to {len(self.images)} images")
         
-        self.image_paths.sort()
-        
-        print(f"Found {len(self.image_paths)} images in {root}")
-        
-        # Applies limit if specified
-        if limit is not None and limit > 0:
-            self.image_paths = self.image_paths[:limit]
-            print(f"Limited to {len(self.image_paths)} images")
+        # if limit is not None and limit > 0:
+        #     self.images = self.image_paths[:limit]
+        #     print(f"Limited to {len(self.image_paths)} images")
     
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.images)
     
     def __getitem__(self, idx):
-        img_path = self.image_paths[idx]
+        img_path = self.images[idx]
         
         # Load image
         image = Image.open(img_path).convert('RGB')
@@ -269,7 +267,7 @@ def train_stylegan(config, checkpoint_path):
 
     # Dataset
     transform = get_transforms(img_size)
-    dataset = CelebADataset(
+    dataset = FFHQDataset(
         root=config["dataset_path"],
         transform=transform,
         limit=config["dataset_limit"]
