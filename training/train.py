@@ -20,14 +20,14 @@ sys.path.append("/content/Face-Generator-StyleGAN-PyTorch")
 
 load_dotenv()
 
-HF_TOKEN = os.getenv("HF_TOKEN")
-HF_REPO = os.getenv("HF_REPO")
+HF_TOKEN =os.getenv("HF_TOKEN")
+HF_REPO =os.getenv("HF_REPO")
 hf_api = HfApi()
 
 from model.style_gan import StyleGAN, Discriminator
 from training_config import training_config
 from ADA.ada import ADAugment, AugmentationPipeline
-from data.preprocess import preprocess_ffhq_to_numpy
+from data.preprocess import preprocess_ffhq_fast
 from data.dataset import FFHQDatasetNumpy
 
 
@@ -221,11 +221,12 @@ def train_stylegan(config, checkpoint_path=None):
         eps=config["adam_eps"]
     )
 
-    preprocess_ffhq_to_numpy(
+    preprocess_ffhq_fast(
         input_root=config["dataset_path"],
         output_root=config["processed_dataset_path"],
         target_size=128,
-        limit=60000  
+        limit=60000,
+        num_workers=8
     )
 
     dataset_root = config.get("processed_dataset_path", config["dataset_path"])

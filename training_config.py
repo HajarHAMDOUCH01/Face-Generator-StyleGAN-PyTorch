@@ -13,7 +13,7 @@ training_config = {
     "preprocess_data": True,  
     
     # Training
-    "batch_size": 64,
+    "batch_size": 32,
     "num_epochs": 100,
     "num_workers": 8,
     "prefetch_factor": 4,
