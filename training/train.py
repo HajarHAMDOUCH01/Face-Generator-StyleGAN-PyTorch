@@ -221,13 +221,14 @@ def train_stylegan(config, checkpoint_path=None):
         eps=config["adam_eps"]
     )
 
-    preprocess_ffhq_fast(
-        input_root=config["dataset_path"],
-        output_root=config["processed_dataset_path"],
-        target_size=128,
-        limit=60000,
-        num_workers=8
-    )
+    if config["preprocess_data"]:
+        preprocess_ffhq_fast(
+            input_root=config["dataset_path"],
+            output_root=config["processed_dataset_path"],
+            target_size=128,
+            limit=60000,
+            num_workers=8
+        )
 
     dataset_root = config.get("processed_dataset_path", config["dataset_path"])
     
@@ -236,7 +237,8 @@ def train_stylegan(config, checkpoint_path=None):
         transform=None,
         limit=config.get("dataset_limit", None)
     )
-    print(f"Dataset size: {len(dataset)}")
+    if dataset_root == config["processed_dataset_path"]:
+        print(f"Dataset size: {len(dataset)} as processed")
     
     dataloader = DataLoader(
         dataset,

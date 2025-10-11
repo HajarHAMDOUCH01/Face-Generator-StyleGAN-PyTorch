@@ -8,7 +8,7 @@ training_config = {
     
     # Dataset
     "dataset_path": "/content/drive/MyDrive/ffhq-dataset/images1024x1024",  # images
-    "processed_dataset_path": "/content/drive/MyDrive/stylegan_processed_dataset",  # Preprocessed
+    "processed_dataset_path": "/content/drive/MyDrive/stylegan_processed_dataset",  # Preprocessed as numpy arrays 
     "dataset_limit": 60000,
     "preprocess_data": True,  
     
