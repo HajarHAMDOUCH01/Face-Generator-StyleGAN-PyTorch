@@ -153,7 +153,7 @@ class SynthesisNetwork(nn.Module):
         
         # For 128×128: 4→8→16→32→64→128 (5 resolution levels)
         self.log_size = int(np.log2(img_size))
-        self.num_layers = (self.log_size - 1) * 2  # 2 conv layers per resolution
+        self.num_layers = (self.log_size - 1) * 2  
         
         self.channels = {
             4: 512,

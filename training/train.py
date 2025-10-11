@@ -27,6 +27,8 @@ hf_api = HfApi()
 from model.style_gan import StyleGAN, Discriminator
 from training_config import training_config
 from ADA.ada import ADAugment, AugmentationPipeline
+from data.preprocess import preprocess_ffhq_to_numpy
+from data.dataset import FFHQDatasetNumpy
 
 
 torch.backends.cudnn.benchmark = True
@@ -74,64 +76,17 @@ def path_length_regularization(fake_images, w, mean_path_length, decay=0.01):
     
     return path_penalty, mean_path_length, path_mean.item()
 
-import os
-from PIL import Image
-from torch.utils.data import Dataset
-
-class FFHQDataset(Dataset):
-    def __init__(self, root, transform=None, limit=None):
-        self.root = root
-        self.transform = transform
-        self.images = []
-
-        # Walk through all subdirectories (00000, 01000, 02000, ...)
-        # and collect full paths of .png files
-        for dirpath, _, filenames in os.walk(root):
-            # Sort directory names numerically, not lexicographically
-            dir_name = os.path.basename(dirpath)
-            try:
-                dir_num = int(dir_name)
-            except ValueError:
-                dir_num = None  # skip non-numeric folders
-
-            # Collect image paths
-            for file in filenames:
-                if file.lower().endswith(".png"):
-                    full_path = os.path.join(dirpath, file)
-                    self.images.append(full_path)
-                    if limit is not None and len(self.images) >= limit:
-                        break
-
-        # Sort images by directory numeric order (important for FFHQ)
-        self.images.sort(
-            key=lambda path: int(os.path.basename(os.path.dirname(path)))
-        )
-
-        print(f"✅ Loaded {len(self.images)} images from {root}")
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx):
-        img_path = self.images[idx]
-        image = Image.open(img_path).convert('RGB')
-
-        if self.transform:
-            image = self.transform(image)
-        return image
 
 
 
-
-def get_transforms(img_size):
-    """Data preprocessing pipeline"""
-    return transforms.Compose([
-        transforms.Resize((img_size, img_size)),
-        transforms.CenterCrop(128),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # [-1, 1]
-    ])
-
+# def get_transforms(img_size):
+#     """Data preprocessing pipeline"""
+#     return transforms.Compose([
+#         transforms.Resize((img_size, img_size)),
+#         transforms.CenterCrop(128),
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # [-1, 1]
+#     ])
 
 def compute_gradient_penalty(discriminator, real_images):
     """R1 regularization, this excpects realimages with equies_gad true"""
@@ -191,7 +146,7 @@ def generate_samples(generator, device, epoch, save_dir, num_samples=16):
     
     generator.train()
 
-def load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, ada, checkpoint_path):
+def load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, checkpoint_path):
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     
     def strip_prefix(state_dict, prefix="_orig_mod."):
@@ -223,18 +178,12 @@ def load_from_checkpoint(generator, discriminator, g_optimizer, d_optimizer, ada
     d_optimizer.load_state_dict(checkpoint["d_optimizer_state_dict"])
     
     start_epoch = checkpoint["epoch"] + 1
-
-    if 'ada_state' in checkpoint:
-        ada.load_state_dict(checkpoint["ada_state"])
-        print(f"Loaded ADA state: p={ada.p:.3f}")
-    else:
-        print("Warning: No ADA state in checkpoint, starting fresh")
     
     print(f"Successfully loaded checkpoint from epoch {checkpoint['epoch']+1}")
     
-    return generator, discriminator, g_optimizer, d_optimizer, start_epoch, ada
+    return generator, discriminator, g_optimizer, d_optimizer, start_epoch
 
-def train_stylegan(config, checkpoint_path):
+def train_stylegan(config, checkpoint_path=None):
     
     img_size = config["image_size"]
     z_dim = config["z_dim"]
@@ -272,38 +221,36 @@ def train_stylegan(config, checkpoint_path):
         eps=config["adam_eps"]
     )
 
-    # Dataset
-    transform = get_transforms(img_size)
-    dataset = FFHQDataset(
-        root=config["dataset_path"],
-        transform=transform,
-        limit=config["dataset_limit"]
+    preprocess_ffhq_to_numpy(
+        input_root=config["dataset_path"],
+        output_root=config["processed_dataset_path"],
+        target_size=128,
+        limit=60000  
     )
+
+    dataset_root = config.get("processed_dataset_path", config["dataset_path"])
+    
+    dataset = FFHQDatasetNumpy(
+        root=dataset_root,
+        transform=None,
+        limit=config.get("dataset_limit", None)
+    )
+    print(f"Dataset size: {len(dataset)}")
     
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=config["num_workers"],
+        num_workers=config.get("num_workers", 8),
         pin_memory=True,
-        drop_last=True,
-        persistent_workers=True if config["num_workers"] > 0 else False,
+        persistent_workers=True,
+        prefetch_factor=config.get("prefetch_factor", 4)
     )
-
-    ada = ADAugment(
-        target_rt=config["target_rt"],
-        adjustment_speed_imgs=config["adjustment_speed_imgs"],
-        batch_size=config["batch_size"],
-        initial_p=config["initial_p"],
-        update_interval=config["update_interval"],
-        device=device
-    )
-    
 
     start_epoch = 0
     if checkpoint_path and os.path.exists(checkpoint_path):
-        generator, discriminator, g_optimizer, d_optimizer, start_epoch, ada = load_from_checkpoint(
-            generator, discriminator, g_optimizer, d_optimizer, ada, checkpoint_path
+        generator, discriminator, g_optimizer, d_optimizer, start_epoch = load_from_checkpoint(
+            generator, discriminator, g_optimizer, d_optimizer, checkpoint_path
         )
         print(f"Resuming from {checkpoint_path} at epoch {start_epoch}")
     else:
@@ -312,20 +259,20 @@ def train_stylegan(config, checkpoint_path):
     g_losses = []
     d_losses = []
     r1_penalties = []
+    plr_losses = []
 
     mean_path_length = torch.tensor(0.0, device=device)
-    plr_losses = []
     
     # PLR hyperparameters
-    plr_weight = config.get("plr_weight", 2.0)  
-    plr_interval = config.get("plr_interval", 4)  
-    plr_decay = config.get("plr_decay", 0.01) 
-    warmup_epochs = 5
+    plr_weight = config.get("plr_weight", 2.0)
+    plr_interval = config.get("plr_interval", 4)
+    plr_decay = config.get("plr_decay", 0.01)
+    warmup_epochs = config.get("warmup_epochs", 5)
 
     for epoch in range(start_epoch, num_epochs):
         # Dynamic R1 gamma during warmup
         if epoch < warmup_epochs:
-            current_r1_gamma = config["r1_gamma"] * 2.0  
+            current_r1_gamma = config["r1_gamma"] * 2.0
         else:
             current_r1_gamma = config["r1_gamma"]
         
@@ -340,56 +287,42 @@ def train_stylegan(config, checkpoint_path):
         num_batches = 0
         
         loop = tqdm(dataloader, leave=True, desc=f"Epoch {epoch+1}/{num_epochs}")
-        fake_scores_batches = []
-        real_scores_batches = []
         for batch_idx, real_images in enumerate(loop):
-            # ===== Move real images to device =====
+            # Move real images to device
             real_images = real_images.to(device, non_blocking=True)
             batch_size_actual = real_images.size(0)
             
             # ==================== Train Discriminator ====================
             d_loss_accum = 0.0
             r1_penalty_accum = 0.0
-
-            # Collect real_scores for ADA BEFORE the n_critic loop or accumulate them
-            ada_real_scores = []  # Collect scores for ADA
             
             for _ in range(n_critic):
-
                 discriminator.requires_grad_(True)
                 generator.requires_grad_(False)
-                assert not any(p.requires_grad for p in generator.parameters()), "Generator params still require grad!"
 
                 discriminator.zero_grad()
                 d_optimizer.zero_grad()
                 
+                # Generate fake images
                 z1 = torch.randn(batch_size_actual, z_dim, device=device)
                 z2 = torch.randn(batch_size_actual, z_dim, device=device)
                 
                 fake_images, _ = generator(z1, z2)
                 fake_images = fake_images.detach()
                 
-                # ===== ADA augmentation =====
-                real_images_aug = ada.apply(real_images)
-                fake_images_aug = ada.apply(fake_images)
-                
-                # Forward through discriminator
-                real_scores = discriminator(real_images_aug)
-                fake_scores = discriminator(fake_images_aug)
-                
-                # collecting scores for ADA (detach to avoid holding computation graph)
-                ada_real_scores.append(real_scores.detach())
+                # Forward through discriminator 
+                real_scores = discriminator(real_images)
+                fake_scores = discriminator(fake_images)
                 
                 # Base discriminator loss
                 d_loss = d_logistic_loss(real_scores, fake_scores)
                 
-                # ===== R1 Regularization =====
+                # R1 Regularization
                 r1_penalty = torch.tensor(0.0, device=device)
                 if batch_idx % config["r1_interval"] == 0:
                     real_images.requires_grad_(True)
-                    real_images_aug_r1 = ada.apply(real_images)
                     
-                    r1_penalty = compute_gradient_penalty(discriminator, real_images_aug_r1)
+                    r1_penalty = compute_gradient_penalty(discriminator, real_images)
                     
                     real_images.requires_grad_(False)
                     
@@ -401,36 +334,7 @@ def train_stylegan(config, checkpoint_path):
                 d_loss_with_r1.backward()
                 d_optimizer.step()
                 
-
-                if batch_idx % 100 == 0:
-                    with torch.no_grad():
-                        real_mean = real_scores.mean().item()
-                        fake_mean = fake_scores.mean().item()
-                        real_std = real_scores.std().item()
-                        fake_std = fake_scores.std().item()
-                        
-                        
-                        print(f"\n[Batch {batch_idx}] Discriminator Health Check:")
-                        # Show mean of rt indicator over last 10 batches
-                        if len(ada.rt_history) >= 100:
-                            rt_mean = torch.tensor(ada.rt_history[-10:]).mean().item()
-                            print(f"  RT Mean (last 100 batches): {rt_mean:.4f}")
-                        else:
-                            rt_mean = torch.tensor(ada.rt_history).mean().item() if ada.rt_history else 0.0
-                            print(f"  RT Mean (last {len(ada.rt_history)} batches): {rt_mean:.4f}")
-                
                 d_loss_accum += d_loss.item()
-            # fake_scores_batches.append(fake_scores)
-            # real_scores_batches.append(real_scores)
-            # if batch_idx % 100 == 0:
-            #     separation_100_batches = abs((sum(real_scores_batches[-100:])/100) - (sum(fake_scores_batches[-100:])/100))
-            #     print(f"seperation in 100 batches : {separation_100_batches}")
-            
-
-            # ===== ADA Update (using accumulated scores) =====
-            # Concatenate all real_scores from n_critic iterations , if it is applied
-            all_real_scores = torch.cat(ada_real_scores, dim=0)
-            current_p = ada.update(all_real_scores)
 
             # Accumulate epoch statistics
             epoch_d_loss += d_loss_accum / n_critic
@@ -446,36 +350,32 @@ def train_stylegan(config, checkpoint_path):
             generator.zero_grad()
             g_optimizer.zero_grad()
 
-            # new random latents for generator training
+            # Generate new images
             z1 = torch.randn(batch_size_actual, z_dim, device=device)
             z2 = torch.randn(batch_size_actual, z_dim, device=device)
 
-            # Forward pass through generator
             fake_images, w = generator(z1, z2, return_w=True)
 
-            # Handle case where generator didn't return w (shouldn't happen with return_w=True, but defensive)
             if w is None:
                 w = generator.mapping(generator.mapping.pixel_norm(z1))
                 fake_images = generator.synthesis(w)
 
-            # Apply ADA augmentation
-            fake_images_aug = ada.apply(fake_images)
-
-            # Get discriminator scores on augmented images
-            fake_scores = discriminator(fake_images_aug)
+            # Get discriminator scores (no augmentation)
+            fake_scores = discriminator(fake_images)
 
             # Non-saturating loss
             g_loss = g_nonsaturating_loss(fake_scores)
-
             g_loss.backward()
 
-            if batch_idx % plr_interval == 0:                
-                z_plr = z1[:2].detach()  
+            # Path Length Regularization
+            plr_loss = torch.tensor(0.0, device=device)
+            if batch_idx % plr_interval == 0:
+                z_plr = z1[:2].detach()
                 
                 # Forward pass with w tracking
                 w_plr = generator.mapping(z_plr)
                 w_plr = w_plr.unsqueeze(1).repeat(1, generator.synthesis.num_layers, 1)
-                w_plr.requires_grad_(True)  # gradient tracking on w
+                w_plr.requires_grad_(True)
                 
                 fake_plr = generator.synthesis(w_plr)
                 
@@ -497,24 +397,23 @@ def train_stylegan(config, checkpoint_path):
                 if mean_path_length == 0:
                     mean_path_length = path_mean.detach()
                 else:
-                    mean_path_length = mean_path_length + config["plr_decay"] * (path_mean.detach() - mean_path_length)
+                    mean_path_length = mean_path_length + plr_decay * (path_mean.detach() - mean_path_length)
                 
                 plr_loss = ((path_lengths - mean_path_length) ** 2).mean()
                 
-                # Backward PLR loss separately
+                # Backward PLR loss
                 (plr_weight * plr_loss).backward()
-                                
+                
                 epoch_plr += plr_loss.item()
                 del fake_plr, w_plr, gradients, path_lengths, path_mean
                 torch.cuda.empty_cache()
-                
-            else:
-                plr_loss = torch.tensor(0.0, device=device)
+            
             g_optimizer.step()
             generator.zero_grad()
             g_optimizer.zero_grad()
             discriminator.zero_grad()
             d_optimizer.zero_grad()
+            
             epoch_g_loss += g_loss.item()
             num_batches += 1
 
@@ -523,8 +422,6 @@ def train_stylegan(config, checkpoint_path):
                 "D_loss": f"{d_loss.item():.4f}",
                 "R1": f"{r1_penalty.item():.4f}" if r1_penalty.item() > 0 else "0.0000",
                 "PLR": f"{plr_loss.item():.5f}" if plr_loss.item() > 0 else "0.0000",
-                "ADA_p": f"{ada.p:.7f}",  # Use ada.p property, not current_p
-                "ADA_rt": f"{ada.rt_history[-1]:.4f}" if ada.rt_history else "N/A",
             })
 
         # ==================== End of Epoch ====================
@@ -545,6 +442,7 @@ def train_stylegan(config, checkpoint_path):
         print(f"  R1 Penalty: {avg_r1:.4f}")
         print(f"  Path Length Penalty: {avg_plr:.4f}")
         print(f"  Mean Path Length: {mean_path_length.item():.4f}")
+        
         # Save checkpoint
         if (epoch + 1) % config["save_every"] == 0:
             checkpoint = {
@@ -556,26 +454,27 @@ def train_stylegan(config, checkpoint_path):
                 'g_losses': g_losses,
                 'd_losses': d_losses,
                 'r1_penalties': r1_penalties,
-                'ada_state': ada.state_dict(),  
+                'plr_losses': plr_losses,
                 'config': config
             }
             checkpoint_path = os.path.join(save_dir, f'stylegan_checkpoint_epoch_{epoch+1}.pth')
             torch.save(checkpoint, checkpoint_path)
             print(f"Checkpoint saved locally: {checkpoint_path}")
             
-            # Upload to Hugging Face
-            try:
-                hf_api.upload_file(
-                    path_or_fileobj=checkpoint_path,
-                    path_in_repo=f"stylegan_checkpoint_epoch_{epoch+1}.pth",
-                    repo_id=HF_REPO,
-                    token=HF_TOKEN,
-                    create_pr=False,
-                )
-                print(f"✓ Checkpoint uploaded to Hugging Face: epoch {epoch+1}")
-            except Exception as e:
-                print(f"⚠ Failed to upload checkpoint: {e}")
-                print("Continuing training (checkpoint saved locally)")
+            # Upload to Hugging Face (optional)
+            if config.get("use_hf_upload", False):
+                try:
+                    hf_api.upload_file(
+                        path_or_fileobj=checkpoint_path,
+                        path_in_repo=f"stylegan_checkpoint_epoch_{epoch+1}.pth",
+                        repo_id=HF_REPO,
+                        token=HF_TOKEN,
+                        create_pr=False,
+                    )
+                    print(f"✓ Checkpoint uploaded to Hugging Face: epoch {epoch+1}")
+                except Exception as e:
+                    print(f"⚠ Failed to upload checkpoint: {e}")
+                    print("Continuing training (checkpoint saved locally)")
         
         # Generate samples
         if (epoch + 1) % config["sample_every"] == 0:
@@ -583,7 +482,7 @@ def train_stylegan(config, checkpoint_path):
         
         clear_memory()
     
-    # Saves final model
+    # Save final model
     print("\nTraining complete! Saving final model...")
     final_path = os.path.join(save_dir, 'stylegan_final.pth')
     torch.save({
@@ -593,7 +492,7 @@ def train_stylegan(config, checkpoint_path):
     }, final_path)
     print(f"Final model saved: {final_path}")
     
-    # Plots training curves
+    # Plot training curves
     plot_training_curves(g_losses, d_losses, r1_penalties, save_dir)
     
     return generator, discriminator, g_losses, d_losses
