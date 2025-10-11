@@ -30,7 +30,7 @@ def ensure_local_dataset(config):
     
     return local_path
 
-if "name" == "__main__":
+if __name__ == "__main__":
     ensure_local_dataset(training_config)
 
 # def train_stylegan(config, checkpoint_path=None):
