@@ -5,6 +5,7 @@ import os
 sys.path.append("/content/Face-Generator-StyleGAN-PyTorch")
 from data.dataset import FFHQDatasetNumpy
 from data.preprocess import preprocess_ffhq_fast
+from training_config import training_config
 
 def ensure_local_dataset(config):
     """
@@ -21,7 +22,6 @@ def ensure_local_dataset(config):
     print(f"📥 Copying preprocessed dataset from Drive to local storage...")
     print(f"   From: {drive_path}")
     print(f"   To: {local_path}")
-    print(f"   This takes ~3-5 minutes (one-time per session)")
     
     shutil.copytree(drive_path, local_path)
     
@@ -29,6 +29,9 @@ def ensure_local_dataset(config):
     print(f"✓ Copy complete! {num_files} files ready in local storage")
     
     return local_path
+
+if "name" == "__main__":
+    ensure_local_dataset(training_config)
 
 # def train_stylegan(config, checkpoint_path=None):
 #     # ... (your existing setup code) ...
