@@ -29,6 +29,7 @@ from training_config import training_config
 from ADA.ada import ADAugment, AugmentationPipeline
 from data.preprocess import preprocess_ffhq_fast
 from data.dataset import FFHQDatasetNumpy
+from data.memmap_dataset import MemmapDataset
 
 
 torch.backends.cudnn.benchmark = True
@@ -79,14 +80,14 @@ def path_length_regularization(fake_images, w, mean_path_length, decay=0.01):
 
 
 
-# def get_transforms(img_size):
-#     """Data preprocessing pipeline"""
-#     return transforms.Compose([
-#         transforms.Resize((img_size, img_size)),
-#         transforms.CenterCrop(128),
-#         transforms.ToTensor(),
-#         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # [-1, 1]
-#     ])
+def get_transforms():
+    """Data preprocessing pipeline"""
+    return transforms.Compose([
+        # transforms.Resize((img_size, img_size)),
+        transforms.CenterCrop(128),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # [-1, 1]
+    ])
 
 def compute_gradient_penalty(discriminator, real_images):
     """R1 regularization, this excpects realimages with equies_gad true"""
@@ -221,30 +222,39 @@ def train_stylegan(config, checkpoint_path=None):
         eps=config["adam_eps"]
     )
 
-    if config["preprocess_data"]:
-        preprocess_ffhq_fast(
-            input_root=config["dataset_path"],
-            output_root=config["processed_dataset_path"],
-            target_size=128,
-            limit=60000,
-            num_workers=8
+    if config["using_dat_file"]:
+        print("loading dataset using memmap file.")
+        dataset = MemmapDataset(
+            memmap_path=config["memmap_path"], 
+            dtype='uint8',
+            shape=(config["dataset_limit"], config["image_size"], config["image_size"], 3),
+            transform=get_transforms()
         )
+        print(f"Dataset size is: {len(dataset)}")
+        
+    elif config["processed_dataset_path"] is not None:
+        print("loading dataset as numpy arrays")
+        dataset = FFHQDatasetNumpy(
+            root=config["processed_dataset_path"],
+            transform=get_transforms(),
+            limit=config.get("dataset_limit", None)
+        )
+        print(f"Dataset size: {len(dataset)}")
 
-    dataset_root = config.get("processed_dataset_path", config["dataset_path"])
-    
-    dataset = FFHQDatasetNumpy(
-        root=dataset_root,
-        transform=None,
-        limit=config.get("dataset_limit", None)
-    )
-    if dataset_root == config["processed_dataset_path"]:
-        print(f"Dataset size: {len(dataset)} as processed")
+    else:
+        print("using dataset as images.")
+        dataset = FFHQDatasetNumpy(
+            root=config["dataset_path"],
+            transform=get_transforms(),
+            limit=config.get("dataset_limit", None)
+        )
+        print(f"Dataset size: {len(dataset)}")
     
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=config.get("num_workers", 8),
+        num_workers=config.get("num_workers", 4),
         pin_memory=True,
         persistent_workers=True,
         prefetch_factor=config.get("prefetch_factor", 4)

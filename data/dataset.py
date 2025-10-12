@@ -28,7 +28,7 @@ class FFHQDatasetNumpy(Dataset):
         
         # Convert to tensor and normalize to [-1, 1]
         image = torch.from_numpy(image).permute(2, 0, 1).float()
-        image = (image / 127.5) - 1.0
+        # image = (image / 127.5) - 1.0
         
         if self.transform:
             image = self.transform(image)
