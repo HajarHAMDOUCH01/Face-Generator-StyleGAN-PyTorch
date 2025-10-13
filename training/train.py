@@ -28,7 +28,7 @@ from model.style_gan import StyleGAN, Discriminator
 from training_config import training_config
 from ADA.ada import ADAugment, AugmentationPipeline
 from data.preprocess import preprocess_ffhq_fast
-from data.dataset import FFHQDatasetNumpy
+from data.dataset import FFHQImageDataset
 from data.memmap_dataset import MemmapDataset
 
 
@@ -221,34 +221,12 @@ def train_stylegan(config, checkpoint_path=None):
         betas=(config["adam_beta1"], config["adam_beta2"]),
         eps=config["adam_eps"]
     )
-
-    if config["using_dat_file"]:
-        print("loading dataset using memmap file.")
-        dataset = MemmapDataset(
-            memmap_path=config["memmap_path"], 
-            dtype='uint8',
-            shape=(config["dataset_limit"], config["image_size"], config["image_size"], 3),
-            transform=get_transforms()
-        )
-        print(f"Dataset size is: {len(dataset)}")
-        
-    elif config["processed_dataset_path"] is not None:
-        print("loading dataset as numpy arrays")
-        dataset = FFHQDatasetNumpy(
-            root=config["processed_dataset_path"],
-            transform=get_transforms(),
-            limit=config.get("dataset_limit", None)
-        )
-        print(f"Dataset size: {len(dataset)}")
-
-    else:
-        print("using dataset as images.")
-        dataset = FFHQDatasetNumpy(
-            root=config["dataset_path"],
-            transform=get_transforms(),
-            limit=config.get("dataset_limit", None)
-        )
-        print(f"Dataset size: {len(dataset)}")
+    dataset = FFHQImageDataset(
+        root=config["dataset_path"],
+        transform=get_transforms(),
+        limit=config.get("dataset_limit", None)
+    )
+    print(f"Dataset size: {len(dataset)}")
     
     dataloader = DataLoader(
         dataset,
