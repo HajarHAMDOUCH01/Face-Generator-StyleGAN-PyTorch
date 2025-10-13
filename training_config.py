@@ -12,7 +12,7 @@ training_config = {
     "processed_dataset_path": "/content/drive/MyDrive/stylegan_processed_dataset",  # Preprocessed as numpy arrays 
     "using_dat_file" : True,
     "memmap_path": "/content/drive/MyDrive/ffhq_memmap.dat",
-    "dataset_limit": 60000,
+    "dataset_limit": 70000,
     
     # Training
     "batch_size": 32,

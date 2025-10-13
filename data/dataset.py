@@ -1,36 +1,47 @@
 from pathlib import Path
 import torch
 from torch.utils.data import Dataset
+from PIL import Image
 import os
-import numpy as np
 
-class FFHQDatasetNumpy(Dataset):
-    def __init__(self, root, transform=None, limit=None):
-        self.root = root
+
+class FFHQImageDataset(Dataset):
+    """
+    Simple and efficient dataset for loading images from a directory.
+    """
+    def __init__(self, root, transform=None, limit=None, extensions=('.jpg', '.jpeg', '.png')):
+        """
+        Args:
+            root: Path to directory containing images
+            transform: torchvision transforms to apply
+            limit: Maximum number of images to load (None = all)
+            extensions: Tuple of valid image extensions
+        """
+        super().__init__()
+        self.root = Path(root)
         self.transform = transform
-        self.images = []
-
-        root_path = Path(root)
-        for file_path in sorted(root_path.glob("*.npy")):  
-            self.images.append(str(file_path))
-            if limit is not None and len(self.images) >= limit:
-                break
-
-        print(f"Loaded {len(self.images)} numpy arrays from {root}")
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx):
-        img_path = self.images[idx]
         
-        image = np.load(img_path)  
+        self.image_paths = []
+        for ext in extensions:
+            self.image_paths.extend(sorted(self.root.glob(f'**/*{ext}')))
         
-        # Convert to tensor and normalize to [-1, 1]
-        image = torch.from_numpy(image).permute(2, 0, 1).float()
-        # image = (image / 127.5) - 1.0
+        if limit is not None:
+            self.image_paths = self.image_paths[:limit]
+        
+        if len(self.image_paths) == 0:
+            raise ValueError(f"No images found in {root} with extensions {extensions}")
+        
+        print(f"Found {len(self.image_paths)} images in {root}")
+    
+    def __getitem__(self, index):
+        img_path = self.image_paths[index]
+        
+        img = Image.open(img_path).convert('RGB')
         
         if self.transform:
-            image = self.transform(image)
+            img = self.transform(img)
         
-        return image
+        return img
+    
+    def __len__(self):
+        return len(self.image_paths)
