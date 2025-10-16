@@ -2,7 +2,7 @@
 ### Data : FFHQ
 
 ### in epoch 26 / 100 
-![image alt]()
+![image alt](https://github.com/HajarHAMDOUCH01/Face-Generator-StyleGAN-PyTorch/blob/d450b4268bd570c20df92cfe0290410c00d4c02d/samples_2.png)
 
 ### Inference :
 - Run testing/test.py , it geneartes a new face using scripted model using Torchscript.
