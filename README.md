@@ -3,6 +3,7 @@
 
 ### in epoch 26 / 100 
 ![image alt](https://github.com/HajarHAMDOUCH01/Face-Generator-StyleGAN-PyTorch/blob/d450b4268bd570c20df92cfe0290410c00d4c02d/samples_2.png)
+![image alt](https://github.com/HajarHAMDOUCH01/Face-Generator-StyleGAN-PyTorch/blob/bf1953e7b4f47fa795cf36dc921c37bbbcb482df/generated_face_2.png)
 
 ### Inference :
 - Run testing/test.py , it geneartes a new face using scripted model using Torchscript.
