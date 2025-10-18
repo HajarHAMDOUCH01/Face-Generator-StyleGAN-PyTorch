@@ -1,10 +1,8 @@
-"""
-Standalone script to upload a trained StyleGAN checkpoint to Hugging Face
-No training code needed - just load checkpoint and upload!
-"""
-
 import torch
-from model import StyleGAN  # Your model.py with the mixin
+
+import sys 
+sys.path.append("")
+from model.style_gan import StyleGAN 
 import os
 
 # ============================================
