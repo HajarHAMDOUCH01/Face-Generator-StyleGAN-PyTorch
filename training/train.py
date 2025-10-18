@@ -463,6 +463,35 @@ def train_stylegan(config, checkpoint_path=None):
                 except Exception as e:
                     print(f"⚠ Failed to upload checkpoint: {e}")
                     print("Continuing training (checkpoint saved locally)")
+            if config.get("use_hf__the_final_upload", False):
+                try:
+                    print(f"Uploading to Hugging Face: {HF_REPO}")
+                    
+                    # Prepare config dict (architecture only)
+                    model_config = {
+                        "z_dim": config["z_dim"],
+                        "w_dim": config["w_dim"],
+                        "img_size": config["image_size"],
+                        "img_channels": 3,
+                        "mapping_layers": config["mapping_layers"],
+                        "style_mixing_prob": config["style_mixing_prob"],
+                    }
+                    
+                    # Push generator to Hub (this is super simple with mixin!)
+                    generator.push_to_hub(
+                        repo_id=HF_REPO,
+                        config=model_config,
+                        commit_message=f"Upload epoch {epoch+1}",
+                        private=False,  # Set to True if you want private repo
+                        token=HF_TOKEN,
+                    )
+                    
+                    print(f"✓ Generator uploaded to Hugging Face: epoch {epoch+1}")
+                    print(f"  View at: https://huggingface.co/{HF_REPO}")
+                    
+                except Exception as e:
+                    print(f"⚠ Failed to upload to Hugging Face: {e}")
+                    print("Continuing training (checkpoint saved locally)")
         
         # Generate samples
         if (epoch + 1) % config["sample_every"] == 0:

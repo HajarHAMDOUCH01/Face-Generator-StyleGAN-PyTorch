@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import numpy as np
 from torch import Tensor
 from typing import Optional
+from huggingface_hub import PyTorchModelHubMixin
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -326,7 +328,14 @@ class Discriminator(nn.Module):
         return x
 
 
-class StyleGAN(nn.Module):
+class StyleGAN(
+    nn.Module,
+    PyTorchModelHubMixin,
+    library_name="stylegan-pytorch",
+    tags=["image-generation", "stylegan", "gan"],
+    repo_url="https://github.com/yourusername/stylegan-pytorch",  # optional
+    license="mit",
+):
     def __init__(self, z_dim=512, w_dim=512, img_size=128, img_channels=3, 
                  mapping_layers=8, style_mixing_prob=0.9):
         super().__init__()
