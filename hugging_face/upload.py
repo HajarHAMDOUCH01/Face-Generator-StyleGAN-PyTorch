@@ -44,9 +44,7 @@ TRAINING_INFO = {
 PRIVATE_REPO = False  # Set to True for private repository
 COMMIT_MESSAGE = "Upload trained StyleGAN model"
 
-# ============================================
-# STEP 1: Load Checkpoint
-# ============================================
+
 
 print("="*60)
 print("LOADING CHECKPOINT")
@@ -59,9 +57,7 @@ print(f"  Checkpoint loaded")
 print(f"  Epoch: {checkpoint['epoch']}")
 print(f"  Keys: {list(checkpoint.keys())}")
 
-# ============================================
-# STEP 2: Create Generator and Load Weights
-# ============================================
+
 
 print("\n" + "="*60)
 print("CREATING GENERATOR")
@@ -84,9 +80,7 @@ generator.eval()
 print(f"✓ Generator created and weights loaded")
 print(f"  Parameters: {sum(p.numel() for p in generator.parameters()):,}")
 
-# ============================================
-# STEP 3: Test Generation (Optional but Recommended)
-# ============================================
+
 
 print("\n" + "="*60)
 print("TESTING GENERATION")
@@ -102,9 +96,6 @@ except Exception as e:
     print(f"Generation test failed: {e}")
     print("  Proceeding anyway, but model might not work correctly...")
 
-# ============================================
-# STEP 4: Upload to Hugging Face
-# ============================================
 
 print("\n" + "="*60)
 print("UPLOADING TO HUGGING FACE")
@@ -119,10 +110,10 @@ try:
     
     generator.push_to_hub(
         repo_id=HF_REPO_ID,
-        config=MODEL_CONFIG,  # Architecture configuration
+        config=MODEL_CONFIG,  
         commit_message=COMMIT_MESSAGE,
         private=PRIVATE_REPO,
-        model_card_kwargs=TRAINING_INFO,  # Additional info for model card
+        model_card_kwargs=TRAINING_INFO,  
     )
     
     print("\n" + "="*60)
@@ -145,9 +136,6 @@ except Exception as e:
     print("3. Verify the repository ID is correct")
     print("4. Ensure you have write access to the repository")
 
-# ============================================
-# STEP 5: Save Locally (Optional Backup)
-# ============================================
 
 print("\n" + "="*60)
 print("SAVING LOCAL BACKUP")
