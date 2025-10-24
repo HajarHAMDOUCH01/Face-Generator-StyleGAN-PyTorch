@@ -276,7 +276,6 @@ def train_stylegan(config, checkpoint_path=None):
         
         loop = tqdm(dataloader, leave=True, desc=f"Epoch {epoch+1}/{num_epochs}")
         for batch_idx, real_images in enumerate(loop):
-            # Move real images to device
             real_images = real_images.to(device, non_blocking=True)
             batch_size_actual = real_images.size(0)
             
@@ -324,7 +323,7 @@ def train_stylegan(config, checkpoint_path=None):
                 
                 d_loss_accum += d_loss.item()
 
-            # Accumulate epoch statistics
+            # Accumulation of epoch statistics
             epoch_d_loss += d_loss_accum / n_critic
             if r1_penalty_accum > 0:
                 epoch_r1 += r1_penalty_accum / n_critic
@@ -338,7 +337,7 @@ def train_stylegan(config, checkpoint_path=None):
             generator.zero_grad()
             g_optimizer.zero_grad()
 
-            # Generate new images
+            # Generates new images
             z1 = torch.randn(batch_size_actual, z_dim, device=device)
             z2 = torch.randn(batch_size_actual, z_dim, device=device)
 
@@ -348,7 +347,7 @@ def train_stylegan(config, checkpoint_path=None):
                 w = generator.mapping(generator.mapping.pixel_norm(z1))
                 fake_images = generator.synthesis(w)
 
-            # Get discriminator scores (no augmentation)
+            # Get discriminator scores
             fake_scores = discriminator(fake_images)
 
             # Non-saturating loss
@@ -381,7 +380,6 @@ def train_stylegan(config, checkpoint_path=None):
                 path_lengths = torch.sqrt(gradients.pow(2).sum(dim=2).mean(dim=1) + 1e-8)
                 path_mean = path_lengths.mean()
                 
-                # Update EMA
                 if mean_path_length == 0:
                     mean_path_length = path_mean.detach()
                 else:
@@ -467,7 +465,7 @@ def train_stylegan(config, checkpoint_path=None):
                 try:
                     print(f"Uploading to Hugging Face: {HF_REPO}")
                     
-                    # Prepare config dict (architecture only)
+                    # Prepare config dict 
                     model_config = {
                         "z_dim": config["z_dim"],
                         "w_dim": config["w_dim"],
@@ -477,12 +475,11 @@ def train_stylegan(config, checkpoint_path=None):
                         "style_mixing_prob": config["style_mixing_prob"],
                     }
                     
-                    # Push generator to Hub (this is super simple with mixin!)
                     generator.push_to_hub(
                         repo_id=HF_REPO,
                         config=model_config,
                         commit_message=f"Upload epoch {epoch+1}",
-                        private=False,  # Set to True if you want private repo
+                        private=False,  
                         token=HF_TOKEN,
                     )
                     
@@ -549,4 +546,4 @@ if __name__ == "__main__":
         training_config, 
         checkpoint_path=None
     )
-    print("\n✓ Training completed successfully!")
+    print("\n Training completed successfully!")

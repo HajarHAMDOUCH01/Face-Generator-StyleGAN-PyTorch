@@ -10,13 +10,6 @@ class FFHQImageDataset(Dataset):
     Simple and efficient dataset for loading images from a directory.
     """
     def __init__(self, root, transform=None, limit=None, extensions=('.jpg', '.jpeg', '.png')):
-        """
-        Args:
-            root: Path to directory containing images
-            transform: torchvision transforms to apply
-            limit: Maximum number of images to load (None = all)
-            extensions: Tuple of valid image extensions
-        """
         super().__init__()
         self.root = Path(root)
         self.transform = transform

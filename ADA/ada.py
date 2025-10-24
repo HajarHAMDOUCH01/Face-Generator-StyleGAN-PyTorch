@@ -20,7 +20,7 @@ class AugmentationPipeline:
         x = x.clone()
         
         B, C, H, W = x.shape
-        original_h, original_w = H, W  # Save original dimensions
+        original_h, original_w = H, W 
         
         # Horizontal flip (per-sample)
         flip_mask = torch.rand(B, device=self.device) < p
@@ -124,7 +124,7 @@ class ADAugment:
         self.update_interval = update_interval
         self.device = device
         
-        # Calculate adjustment step
+        # adjustment step
         # p goes from 0→1 in adjustment_speed_imgs images
         # Update happens every (update_interval * batch_size) images
         imgs_per_update = update_interval * batch_size
@@ -134,7 +134,6 @@ class ADAugment:
         self._p = initial_p
         self.augment_pipe = augment_pipe or AugmentationPipeline(device)
         
-        # Rolling buffer for real_logits (store last N minibatches)
         self.logits_buffer = []
         self.batch_counter = 0
         
@@ -182,7 +181,6 @@ class ADAugment:
                 self._p -= self.adjustment_step
             
             # Clamp p to [0, 0.85]
-            # From Section 2.2, Figure 3b: "p remains below ~0.85, the generated images are always oriented correctly"
             self._p = max(0.0, min(0.85, self._p))
             
             # Track statistics

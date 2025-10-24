@@ -207,7 +207,7 @@ class SynthesisNetwork(nn.Module):
             x = block(x, w[:, layer_idx])
             layer_idx += 1
         
-        # Convert to RGB
+        # Conversion to RGB
         rgb = self.to_rgb(x)
         return torch.tanh(rgb)
 
@@ -223,7 +223,6 @@ class MinibatchStdDev(nn.Module):
         batch_size, channels, height, width = x.shape
         
         if batch_size <= 1:
-            # Can't compute stddev with batch of 1, adds zeros
             stddev_channel = torch.zeros(batch_size, 1, height, width, device=x.device)
             return torch.cat([x, stddev_channel], dim=1)
         
@@ -331,10 +330,6 @@ class Discriminator(nn.Module):
 class StyleGAN(
     nn.Module,
     PyTorchModelHubMixin,
-    library_name="stylegan-pytorch",
-    tags=["image-generation", "stylegan", "gan"],
-    repo_url="https://github.com/yourusername/stylegan-pytorch",  # optional
-    license="mit",
 ):
     def __init__(self, z_dim=512, w_dim=512, img_size=128, img_channels=3, 
                  mapping_layers=8, style_mixing_prob=0.9):
@@ -376,8 +371,7 @@ class StyleGAN(
             ], dim=1)
         else:
             w = w1.unsqueeze(1).expand(-1, num_layers, -1).clone()
-        
-        # Generate image
+        # Generation
         rgb = self.synthesis(w)
         
         if return_w:
@@ -396,3 +390,96 @@ class StyleGAN(
         # For generation, we need to expand w for all layers
         w_expanded = w.unsqueeze(1).expand(-1, self.synthesis.num_layers, -1)
         return self.synthesis(w_expanded)
+
+
+
+
+
+
+# training_config = {
+#     # Architecture
+#     "image_size": 128,
+#     "z_dim": 512,
+#     "w_dim": 512,
+#     "mapping_layers": 8,
+    
+#     # Dataset
+#     "dataset_path": "/content/ffhq_128x128_jpg",  
+#     "dataset_limit": 70000,
+    
+#     # Training
+#     "batch_size": 40,
+#     "num_epochs": 100,
+#     "num_workers": 8,
+#     "prefetch_factor": 4,
+#     "style_mixing_prob": 0.6,
+    
+#     # Optimizer
+#     "adam_beta1": 0.0,
+#     "adam_beta2": 0.99,
+#     "adam_eps": 1e-8,
+#     "g_lr": 0.00008,
+#     "d_lr": 0.00018,
+    
+#     # Regularization
+#     "plr_weight": 1.0,
+#     "plr_interval": 4,
+#     "plr_decay": 0.01,
+#     "r1_gamma": 6.0,
+#     "r1_interval": 16,
+#     "warmup_epochs": 5,
+    
+#     # Logging
+#     "save_dir": "/content/drive/MyDrive/stylegan_checkpoints",
+#     "save_every": 1,
+#     "sample_every": 1,
+#     "log_every": 100,
+    
+#     "use_hf_upload": True,  
+# }
+
+
+
+
+
+# training_config = {
+#     # Architecture
+#     "image_size": 128,
+#     "z_dim": 512,
+#     "w_dim": 512,
+#     "mapping_layers": 8,
+#     "style_mixing_prob": 0.75,
+    
+#     # Dataset
+#     "dataset_path": "/content/ffhq_128x128_jpg",  
+#     "dataset_limit": 70000,
+    
+#     # Training
+#     "batch_size": 40,
+#     "num_epochs": 100,
+#     "num_workers": 8,
+#     "prefetch_factor": 4,
+    
+#     # Optimizer
+#     "adam_beta1": 0.0,
+#     "adam_beta2": 0.99,
+#     "adam_eps": 1e-8,
+#     "g_lr": 0.00017,
+#     "d_lr": 0.00012,
+    
+#     # Regularization
+#     "plr_weight": 1.0,
+#     "plr_interval": 4,
+#     "plr_decay": 0.01,
+#     "r1_gamma": 8.0,
+#     "r1_interval": 16,
+#     "warmup_epochs": 5,
+    
+#     # Logging
+#     "save_dir": "/content/drive/MyDrive/stylegan_checkpoints",
+#     "save_every": 1,
+#     "sample_every": 1,
+#     "log_every": 100,
+    
+#     "use_hf_upload": True,  
+# }

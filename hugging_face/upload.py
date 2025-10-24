@@ -9,13 +9,10 @@ import os
 # CONFIGURATION
 # ============================================
 
-# Path to your checkpoint file
 CHECKPOINT_PATH = ""
 
-# Hugging Face repository
 HF_REPO_ID = ""  
 
-# Model configuration (architecture only)
 MODEL_CONFIG = {
     "z_dim": 512,
     "w_dim": 512,
@@ -25,7 +22,6 @@ MODEL_CONFIG = {
     "style_mixing_prob": 0.9,
 }
 
-# Training info (optional, for model card)
 TRAINING_INFO = {
     "dataset": "FFHQ",
     "dataset_size": 70000,
@@ -38,8 +34,7 @@ TRAINING_INFO = {
     "style_mixing_prob": 0.8,
 }
 
-# Upload settings
-PRIVATE_REPO = False  # Set to True for private repository
+PRIVATE_REPO = False  
 COMMIT_MESSAGE = "Upload trained StyleGAN model"
 
 
@@ -61,7 +56,6 @@ print("\n" + "="*60)
 print("CREATING GENERATOR")
 print("="*60)
 
-# Create generator with your architecture
 generator = StyleGAN(
     z_dim=MODEL_CONFIG["z_dim"],
     w_dim=MODEL_CONFIG["w_dim"],
@@ -71,12 +65,11 @@ generator = StyleGAN(
     style_mixing_prob=MODEL_CONFIG["style_mixing_prob"],
 )
 
-# Load generator weights from checkpoint
 generator.load_state_dict(checkpoint['generator_state_dict'])
 generator.eval()
 
-print(f"✓ Generator created and weights loaded")
-print(f"  Parameters: {sum(p.numel() for p in generator.parameters()):,}")
+print(f"Generator created and weights loaded")
+print(f"Parameters: {sum(p.numel() for p in generator.parameters()):,}")
 
 
 
@@ -100,9 +93,6 @@ print("UPLOADING TO HUGGING FACE")
 print("="*60)
 
 try:
-    # Make sure you're logged in first:
-    # Run in terminal: huggingface-cli login
-    
     print(f"Uploading to: {HF_REPO_ID}")
     print(f"Private: {PRIVATE_REPO}")
     
@@ -124,15 +114,7 @@ try:
     print(f'   model = PyTorchModelHubMixin.from_pretrained("{HF_REPO_ID}")')
     
 except Exception as e:
-    print("\n" + "="*50)
-    print("UPLOAD FAILED")
-    print("="*60)
     print(f"Error: {e}")
-    print("\nTroubleshooting:")
-    print("1. Make sure you're logged in: huggingface-cli login")
-    print("2. Check your internet connection")
-    print("3. Verify the repository ID is correct")
-    print("4. Ensure you have write access to the repository")
 
 
 print("\n" + "="*60)
@@ -149,7 +131,3 @@ generator.save_pretrained(
 
 print(f"Local backup saved to: {local_save_dir}")
 print(f"Files: pytorch_model.bin, config.json, README.md")
-
-print("\n" + "="*60)
-print("DONE!")
-print("="*60)
